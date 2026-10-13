@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Your private space for weekly notes."><title>Pplanner ? A little space to plan</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<header class="topbar"><a class="brand" href="/" aria-label="Pplanner home"><span class="logo" aria-hidden="true">p<span>?</span></span><span>pplanner<span class="brand-caption">A LITTLE SPACE TO PLAN</span></span></a><div class="top-actions"><span class="private"><span></span> Private workspace</span><button class="settings icon-button" disabled aria-label="Settings (coming soon)" title="Settings coming soon"><img src="/imgs/settings.png" alt="" aria-hidden="true" width="20" height="20"></button></div></header>
+<main>
+<section class="week-toolbar" aria-label="Week navigation"><button id="previous" class="icon-button arrow" aria-label="Previous week"><img src="/imgs/left-arrow.png" alt="" aria-hidden="true" width="20" height="20"></button><div class="week-title"><div class="eyebrow">YOUR WEEK, AT A GLANCE</div><h1 id="week-title"></h1><p id="week-year"></p></div><div class="week-controls"><button id="today" class="today-button">This week</button><button id="next" class="icon-button arrow" aria-label="Next week"><img src="/imgs/right-arrow.png" alt="" aria-hidden="true" width="20" height="20"></button></div></section>
+<div class="intro"><span>A place for thoughts, plans, and everything in between.</span><span class="hint">Click + to make a little room.</span></div>
+<p id="status" role="status" aria-live="polite"></p>
+<section id="calendar" class="calendar" aria-label="Monday to Friday calendar"></section>
+<footer><span><span class="footer-dot"></span> A quieter kind of productivity.</span><span>YOUR NOTES. YOUR SPACE.</span></footer>
+</main>
+<template id="day-template"><section class="day"><header class="day-header"><div><span class="day-name"></span><div class="day-date-row"><span class="day-number"></span><span class="today-label" hidden>TODAY</span></div></div><button class="add-note" aria-label="Add note"><img src="/imgs/add.png" alt="" aria-hidden="true" width="20" height="20"></button></header><div class="day-content"><div class="composer"></div><div class="notes"></div><div class="empty"><span class="empty-mark">?</span><p>A little breathing room.</p><span>Add your first note</span></div></div><div class="day-count"></div></section></template>
+<dialog id="note-editor" aria-label="Edit note and comments">
+<header class="editor-header"><button id="editor-close" type="button" class="icon-button" aria-label="Close note editor">&times;</button></header>
+<p id="editor-status" role="status" aria-live="polite"></p>
+<div class="editor-layout"><form id="edit-note-form"><label for="edit-date">Date</label><input id="edit-date" name="date" type="date" required><label for="edit-body">Your note</label><textarea id="edit-body" name="body" maxlength="10000" required></textarea><div class="editor-save-row"><span id="edit-state"></span><button class="insert" type="submit">Save changes</button></div></form>
+<aside class="comment-panel" aria-labelledby="comments-title"><h3 id="comments-title">Comments</h3><div id="comment-history" role="log" aria-label="Comment history"></div><form id="comment-form"><label for="comment-body">Add a comment</label><textarea id="comment-body" name="body" placeholder="Leave a thought..." maxlength="10000" required></textarea><button type="submit" class="insert">Add comment</button></form></aside></div>
+</dialog>
+
+</body></html>
