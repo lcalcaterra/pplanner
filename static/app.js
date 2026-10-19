@@ -157,7 +157,7 @@ function updateCount(column) {
 function openForm(column, selected) {
   if ($('form', column)) { $('textarea', column).focus(); return; }
   const form = document.createElement('form');
-  form.innerHTML = '<label>Date<input type="date" name="date" required></label><label>Your note<textarea name="body" placeholder="What?s on your mind?" maxlength="10000" required></textarea></label><p class="form-error" role="alert"></p><div class="form-actions"><button type="button" class="cancel">Cancel</button><button type="submit" class="insert">Insert note</button></div>';
+  form.innerHTML = '<label>Date<input type="date" name="date" required></label><label>Your note<textarea name="body" placeholder="What is on your mind?" maxlength="10000" required></textarea></label><p class="form-error" role="alert"></p><div class="form-actions"><button type="button" class="cancel">Cancel</button><button type="submit" class="insert">Insert note</button></div>';
   form.elements.date.value = selected;
   $('.composer', column).append(form);
   updateCount(column);
@@ -175,7 +175,7 @@ function openForm(column, selected) {
     if ([0,6].includes(new Date(selectedDate + 'T12:00:00').getDay())) { error.textContent = 'Choose Monday to Friday.'; return; }
     pendingCreates++;
     button.disabled = true;
-    button.textContent = 'Saving?';
+    button.textContent = 'Saving...';
     error.textContent = '';
     try {
       const {note} = await request('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:selectedDate,body})});
@@ -217,7 +217,7 @@ async function render(preserveDrafts = false) {
   const range = month.format(week) === month.format(friday) ? month.format(week) + ' ' + week.getDate() + ' - ' + friday.getDate() : month.format(week) + ' ' + week.getDate() + ' - ' + month.format(friday) + ' ' + friday.getDate();
   $('#week-title').textContent = range;
   $('#week-year').textContent = week.getFullYear() === friday.getFullYear() ? week.getFullYear() : week.getFullYear() + ' / ' + friday.getFullYear();
-  $('#status').textContent = 'Loading notes?';
+  $('#status').textContent = 'Loading notes...';
   const calendar = $('#calendar');
   calendar.replaceChildren();
   noteModels.clear();

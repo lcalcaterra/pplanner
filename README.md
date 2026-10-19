@@ -360,3 +360,28 @@ Manual verification for this change:
 5. Try blank comments, Enter submission, Shift+Enter, and the inline send button.
 6. Submit while a note autosave is pending and confirm one comment is added.
 7. Close with a comment draft and confirm the discard prompt.
+
+## Interface design
+
+The interface uses a warm paper background with a deep ink header and lilac
+accents. Each weekday has a soft accent color; today uses a filled date tile.
+Week navigation is grouped beside the date heading. Cards use subtle elevation,
+visible completion circles, and clear hover/focus and drag/drop states.
+
+The note editor uses the same palette, rounded fields and a compact comments
+panel. Autosave, Enter-to-send comments, comment menus, dragging, completion,
+deletion and weekly rollover retain their existing behavior. The per-card
+up/down controls and weekday dropdown remain removed.
+
+The five-column calendar scrolls horizontally on smaller screens and each day
+scrolls vertically. The editor stacks its comments panel below the note on
+phones. Visible keyboard focus, reduced-motion support, forced-colors fallback,
+accessible control names and the supplied local image icons are retained.
+Typography uses system fonts and Georgia; no external assets or packages are
+required. Theme colors and shared values live at the top of static/style.css.
+
+For visual review, check the calendar with empty days, long notes, completed
+notes, a full scrolling column and the editor. Also try narrow screens, keyboard
+navigation, a dragged note, save failures, comment menus and reduced motion.
+The presentation update preserves every existing HTML element ID used by the
+JavaScript. Interactive browser verification requires a local browser.
