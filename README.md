@@ -11,7 +11,6 @@ simplicity of a planner, with a focus on notes rather than tasks. MIT licensed.
 - Change the date to another weekday, including one outside the visible week.
 - New notes appear first among unfinished notes. Each day scrolls vertically with the mouse.
 - Drag notes between weekdays of the same week or reorder them within a day.
-- Up/down buttons and a weekday selector support keyboard and touch movement.
 - Click a note circle to complete it: checked, muted, and below unfinished notes.
 - Narrow screens scroll the five-day calendar horizontally.
 - SQLite persistence across refreshes and restarts.
@@ -177,9 +176,8 @@ there, or below the final note to append it. A highlighted column and insertion
 line indicate the destination. Near the top or bottom of a day, dragging scrolls
 the column. Movement is limited to Monday?Friday of the note's existing week.
 
-Use the up/down buttons to reorder within the same completion group. Use the
-weekday selector to move to the end of that group's list on another day.
-These controls also work without desktop drag-and-drop, including on touch devices.
+Reorder notes by dragging within a day or move them by dragging to another weekday.
+To change a date without dragging, open the note editor and edit its Date field.
 
 Click the circle to complete a note. A check appears and the card becomes muted;
 it moves to the end of the day's completed notes. Click again to reopen it and
@@ -210,7 +208,7 @@ Additional manual checks:
 2. Drag between weekdays, including into an empty day; check both note counts.
 3. Complete several notes and verify they remain below unfinished notes.
 4. Reopen a note; confirm it moves to the top, then refresh.
-5. Try up/down controls and weekday selectors using the keyboard.
+5. Open a note with the keyboard and change its date in the editor.
 6. Drag near the edge of a long day to scroll and drop at the desired position.
 7. Stop the server and try a move/completion; verify an error appears without
    changing the displayed notes.
@@ -226,17 +224,16 @@ act independently of opening the editor. Dragging still works from the card.
 
 The dialog shows the note date and full text on the left, with comment history
 and a new-comment form on the right. On narrow screens the comment panel appears
-below the editor. Save changes updates the note. The date can be any weekday,
+below the editor. Note text and date changes save automatically after a short pause. The date can be any weekday,
 including a different week; if that week is not visible, the dialog tells you
 where to find the saved note. Editing text alone preserves order. Changing the
 date places unfinished notes first and completed notes last in the destination
 day's respective group.
 
-Add comment saves a timestamped plain-text comment immediately. Comments are
+The compact send button inside the comment box saves a timestamped plain-text comment. Enter sends it; Shift+Enter inserts a line break. Comments are
 shown oldest first and kept when the note's text or date changes. Note text and
 comments accept 1?10,000 characters. An unsaved comment draft is separate from
-saving the note. Closing with unsaved note changes or a comment draft asks
-whether to discard them. Failed saves retain the text for retrying.
+autosaving the note. Closing first flushes pending note changes; remaining drafts or failed saves trigger a discard confirmation. Failed saves retain the text for retrying.
 
 The bin icon in the upper-right of a note deletes it after confirmation.
 Deletion is permanent and also deletes its comments; there is no recycle bin.
@@ -252,11 +249,11 @@ and its validation, text-only order preservation, moving to another week,
 persistent comment history, deletion cascading, and the bin asset.
 
 Manual UI checks:
-1. Click a note and edit text and date; save and reopen it.
+1. Click a note, edit text and date, wait for Saved, and reopen it.
 2. Add two comments; close/reopen and refresh to confirm their history persists.
 3. Edit the date into a different week and navigate there after closing.
 4. Press Escape with unsaved text and verify the discard prompt.
-5. Click complete, movement controls, and the bin; confirm they do not open the editor.
+5. Click complete and the bin; confirm they do not open the editor.
 6. Cancel a bin confirmation, then delete a disposable note and verify it disappears.
 7. Drag a card and confirm dropping it does not accidentally open the editor.
 8. Test Tab/Enter navigation, small-screen layout, and save failure with the server stopped.
@@ -334,3 +331,32 @@ catch-up after missed weeks, year boundaries, completed and future notes, order,
 comments and timestamps, once-per-week persistence, concurrent checks, background
 checking, and the Rome/UTC date boundary. Browser refresh and draft preservation
 still require manual browser verification.
+
+## Autosave and comment shortcuts
+
+The note editor has no Save changes button. Description and date changes are
+debounced for 600 milliseconds. The small status below the note shows Unsaved
+changes, Saving..., Saved, or Not saved. Empty descriptions and invalid/weekend
+dates are not saved. Failed saves retain your text and show Retry saving.
+
+Only one note save runs at a time. Typing remains possible during autosave;
+a response acknowledges only its saved snapshot and cannot replace newer typing.
+Pending changes are flushed before closing or submitting a comment action.
+Browser refresh/close prompts when drafts or a save are still pending; wait for
+Saved before leaving. A failed save can be retried or explicitly discarded.
+
+The comment composer has a compact arrow button inside the bottom-right corner.
+It is disabled for blank/whitespace-only comments. Enter sends a nonblank comment;
+Shift+Enter creates a new line. Text-composition Enter presses do not send.
+Comments remain explicit submissions rather than being autosaved, and a failed
+submission retains the draft. Existing comment editing retains its Save/Cancel
+controls. No server API changes or additional dependencies are needed.
+
+Manual verification for this change:
+1. Type quickly and confirm Saved appears after a pause; reopen to check persistence.
+2. Continue typing while a save is in progress and verify the latest text remains.
+3. Change the date, then close immediately and confirm the change is saved.
+4. Stop the server, edit, confirm Not saved and retry after restarting it.
+5. Try blank comments, Enter submission, Shift+Enter, and the inline send button.
+6. Submit while a note autosave is pending and confirm one comment is added.
+7. Close with a comment draft and confirm the discard prompt.

@@ -7,7 +7,7 @@
 .add-note img{width:16px;height:16px}
 
 /* Note movement and completion */
-.note-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.complete-note{width:22px;height:22px;border:1.5px solid #9aa78f;border-radius:50%;background:transparent;color:#4d6746;display:inline-flex;align-items:center;justify-content:center;font-size:13px;padding:0}.complete-note:hover{background:#dce6d4}.drag-handle{font-size:21px;line-height:1;color:#929e87;cursor:grab}.note[draggable=true]{cursor:grab}.note[draggable=true]:active{cursor:grabbing}.note.completed{opacity:.62;box-shadow:none}.note.completed .note-body{color:#727b6d}.note.completed .complete-note{background:#dce6d4;border-color:#8da080}.note-controls{display:flex;align-items:center;gap:5px;margin-top:12px}.note-controls button,.note-controls select{border:1px solid #d8dfd0;border-radius:4px;background:#fffefa;color:#63725a;font-size:11px;min-height:27px}.note-controls button{width:28px;padding:2px}.note-controls select{min-width:0;flex:1;padding:4px}.note.dragging{opacity:.35}.day.drop-target{box-shadow:inset 0 0 0 2px #a8b99a}.note.drop-before{border-top:3px solid #66855a}#status:not(:empty){color:#64725b}.note.completed:hover,.note.completed:focus-within{opacity:.85}
+.note-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.complete-note{width:22px;height:22px;border:1.5px solid #9aa78f;border-radius:50%;background:transparent;color:#4d6746;display:inline-flex;align-items:center;justify-content:center;font-size:13px;padding:0}.complete-note:hover{background:#dce6d4}.drag-handle{font-size:21px;line-height:1;color:#929e87;cursor:grab}.note[draggable=true]{cursor:grab}.note[draggable=true]:active{cursor:grabbing}.note.completed{opacity:.62;box-shadow:none}.note.completed .note-body{color:#727b6d}.note.completed .complete-note{background:#dce6d4;border-color:#8da080}.note.dragging{opacity:.35}.day.drop-target{box-shadow:inset 0 0 0 2px #a8b99a}.note.drop-before{border-top:3px solid #66855a}#status:not(:empty){color:#64725b}.note.completed:hover,.note.completed:focus-within{opacity:.85}
 
 /* Note editor and comment history */
 .delete-note{display:inline-flex;align-items:center;justify-content:center;width:27px;height:27px;padding:4px;border:0;border-radius:5px;background:transparent}
@@ -64,3 +64,12 @@
 .comment-edit-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 #comment-history{padding-right:3px;padding-bottom:65px}
 @media(max-width:650px){.editor-layout{grid-template-columns:minmax(0,1fr);padding:0 14px 16px;gap:20px}#edit-note-form{padding:0 4px}.comment-panel{min-height:300px;border-radius:14px}}
+
+/* Quiet autosave status and compact comment composer. */
+.editor-save-row{margin-top:8px;min-height:20px}
+.comment-composer{position:relative}
+#comment-body{display:block;margin:0;padding:12px 44px 36px 12px;min-height:100px}
+#send-comment{position:absolute;right:9px;bottom:9px;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:8px;background:#3f5945;color:white;font-size:19px;line-height:1}
+#send-comment:hover:not(:disabled){background:#2e4533}
+#send-comment:disabled{opacity:.35}
+.comment-keyboard-hint{display:block;margin-top:7px;font-size:9px;line-height:1.5;color:#89947e}
