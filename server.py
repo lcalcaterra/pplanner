@@ -1,10 +1,12 @@
 """Pplanner: private, single-user weekly notes. Python 3.12+, no dependencies."""
 import argparse
+import hashlib
 import json
 import os
 import sys
 import time
 import sqlite3
+import project_store
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +17,16 @@ ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get("PPLANNER_DB", ROOT / "data" / "planner.sqlite3"))
 MAX_BODY = 65536
 
+def backend_digest():
+    """Fingerprint code loaded by this process; static assets are served fresh."""
+    digest=hashlib.sha256()
+    for name in ("server.py","project_store.py"):
+        digest.update((ROOT/name).read_bytes())
+    return digest.hexdigest()
+
+LOADED_BACKEND_DIGEST = backend_digest()
+
+
 def connect():
     db = sqlite3.connect(DB, timeout=10)
     db.execute("PRAGMA foreign_keys = ON")
@@ -23,6 +35,7 @@ def connect():
 
 def initialize():
     DB.parent.mkdir(parents=True, exist_ok=True)
+    project_store.migrate_task_dates(DB)
     with connect() as db:
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("""CREATE TABLE IF NOT EXISTS notes (
@@ -46,6 +59,10 @@ def initialize():
         )""")
         db.execute("CREATE INDEX IF NOT EXISTS comments_note_id ON comments(note_id, id)")
         db.execute("CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        for statement in project_store.SCHEMA.split(";"):
+            if statement.strip():
+                db.execute(statement)
+        project_store.migrate(db)
 
 
 def planner_today():
@@ -108,6 +125,18 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.Error:
                 self.respond(503, {"error": "Could not prepare the current week. Please retry."})
                 return
+        if url.path.startswith(("/api/projects", "/api/tasks", "/api/timeline")):
+            try:
+                with connect() as db:
+                    result = project_store.read(db,url.path,parse_qs(url.query))
+                self.respond(200,result)
+            except LookupError as exc:
+                self.respond(404,{"error":str(exc)})
+            except (ValueError,TypeError) as exc:
+                self.respond(400,{"error":str(exc)})
+            except sqlite3.Error:
+                self.respond(503,{"error":"Could not load the project. Please retry."})
+            return
         if url.path == "/api/clock":
             today = planner_today()
             self.respond(200, {"today": today.isoformat(), "week": (today - timedelta(days=today.weekday())).isoformat()})
@@ -121,7 +150,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Start must precede end.")
                 with connect() as db:
                     rows = db.execute("SELECT * FROM notes WHERE date BETWEEN ? AND ? ORDER BY date, completed, position, id DESC", (start, end))
-                    self.respond(200, {"notes": [dict(row) for row in rows]})
+                    self.respond(200, {"notes": [project_store.note_record(db,row) for row in rows]})
             except (ValueError, TypeError) as exc:
                 self.respond(400, {"error": str(exc)})
             return
@@ -133,10 +162,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(404, {"error": "Note not found."})
                     return
                 comments = [dict(c) for c in db.execute("SELECT * FROM comments WHERE note_id = ? ORDER BY id", (note["id"],))]
-            self.respond(200, {"note": dict(note), "comments": comments})
+            self.respond(200, {"note": project_store.note_record(db,note), "comments": comments})
             return
         paths = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
-                 "/style.css": ("style.css", "text/css")}
+                 "/style.css": ("style.css", "text/css"), "/workspace.js": ("workspace.js", "text/javascript")}
         for icon in ("left-arrow", "right-arrow", "settings", "add", "bin"):
             paths[f"/imgs/{icon}.png"] = (f"../imgs/{icon}.png", "image/png")
         if url.path not in paths:
@@ -157,7 +186,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         action_path = self.path.startswith("/api/notes/")
-        if self.path != "/api/notes" and not action_path:
+        workspace_path = self.path.startswith(("/api/projects", "/api/tasks"))
+        if self.path != "/api/notes" and not action_path and not workspace_path:
             self.respond(404, {"error": "Not found."})
             return
         # Reject browser cross-origin writes; this service intentionally has no CORS.
@@ -167,6 +197,13 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin and origin != "http://" + self.headers.get("Host", ""):
             self.respond(403, {"error": "Origin is not allowed."})
+            return
+        try:
+            current_digest=backend_digest()
+        except OSError:
+            current_digest=None
+        if current_digest != LOADED_BACKEND_DIGEST:
+            self.respond(503, {"error": "Server code has changed. Restart python3 server.py and refresh the browser before saving. Your draft has not been saved."})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -180,6 +217,12 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 raise ValueError("Expected a JSON object.")
             rollover_week()
+            if workspace_path:
+                with connect() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    status,result=project_store.write(db,self.path,payload)
+                self.respond(status,result)
+                return
             if action_path:
                 self.update_note(payload)
                 return
@@ -189,12 +232,16 @@ class Handler(BaseHTTPRequestHandler):
             body = payload.get("body")
             if not isinstance(body, str) or not body.strip() or len(body) > 10000:
                 raise ValueError("Write a note between 1 and 10,000 characters.")
+            tags=project_store.tag_pairs(payload.get("tags",[]))
             with connect() as db:
                 db.execute("BEGIN IMMEDIATE")
                 position = db.execute("SELECT COALESCE(MIN(position), 0) - 1 FROM notes WHERE date = ? AND completed = 0", (selected,)).fetchone()[0]
                 cursor = db.execute("INSERT INTO notes(date, body, position) VALUES (?, ?, ?)", (selected, body.strip(), position))
-                note = dict(db.execute("SELECT * FROM notes WHERE id = ?", (cursor.lastrowid,)).fetchone())
+                project_store.replace_note_tags(db,cursor.lastrowid,tags)
+                note = project_store.note_record(db,db.execute("SELECT * FROM notes WHERE id = ?", (cursor.lastrowid,)).fetchone())
             self.respond(201, {"note": note})
+        except LookupError as exc:
+            self.respond(404, {"error": str(exc)})
         except (ValueError, TypeError, UnicodeDecodeError) as exc:
             self.respond(400, {"error": str(exc)})
         except sqlite3.Error:
@@ -224,7 +271,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("completed must be a boolean.")
                 completed = int(payload["completed"])
                 if completed == row["completed"]:
-                    self.respond(200, {"notes": [dict(n) for n in db.execute("SELECT * FROM notes WHERE date = ? ORDER BY completed, position, id DESC", (source,))]})
+                    self.respond(200, {"notes": [project_store.note_record(db,n) for n in db.execute("SELECT * FROM notes WHERE date = ? ORDER BY completed, position, id DESC", (source,))]})
                     return
             else:
                 target = valid_date(payload.get("date"))
@@ -244,7 +291,7 @@ class Handler(BaseHTTPRequestHandler):
             db.execute("UPDATE notes SET date = ?, completed = ? WHERE id = ?", (target, completed, note_id))
             for position, current_id in enumerate(ids):
                 db.execute("UPDATE notes SET position = ? WHERE id = ?", (position, current_id))
-            notes = [dict(n) for n in db.execute("SELECT * FROM notes WHERE date IN (?, ?) ORDER BY date, completed, position, id DESC", (source, target))]
+            notes = [project_store.note_record(db,n) for n in db.execute("SELECT * FROM notes WHERE date IN (?, ?) ORDER BY date, completed, position, id DESC", (source, target))]
         self.respond(200, {"notes": notes, "dates": list(dict.fromkeys([source, target]))})
 
     def edit_note(self, db, row, action, payload):
@@ -288,16 +335,19 @@ class Handler(BaseHTTPRequestHandler):
             body = payload.get("body")
             if not isinstance(body, str) or not body.strip() or len(body) > 10000:
                 raise ValueError("Write a note between 1 and 10,000 characters.")
+            tags=project_store.tag_pairs(payload["tags"]) if "tags" in payload else None
             position = row["position"]
             if target != source:
                 aggregate = "MAX" if row["completed"] else "MIN"
                 step = 1 if row["completed"] else -1
                 position = db.execute(f"SELECT COALESCE({aggregate}(position), 0) FROM notes WHERE date = ? AND completed = ?", (target, row["completed"])).fetchone()[0] + step
             db.execute("UPDATE notes SET date = ?, body = ?, position = ? WHERE id = ?", (target, body.strip(), position, note_id))
-        notes = [dict(n) for n in db.execute("SELECT * FROM notes WHERE date IN (?, ?) ORDER BY date, completed, position, id DESC", (source, target))]
+            if tags is not None:
+                project_store.replace_note_tags(db,note_id,tags)
+        notes = [project_store.note_record(db,n) for n in db.execute("SELECT * FROM notes WHERE date IN (?, ?) ORDER BY date, completed, position, id DESC", (source, target))]
         result = {"notes": notes, "dates": list(dict.fromkeys([source, target]))}
         if action == "edit":
-            result["note"] = dict(db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone())
+            result["note"] = project_store.note_record(db,db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone())
         db.commit()
         self.respond(200, result)
 

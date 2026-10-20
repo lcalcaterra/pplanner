@@ -1,3 +1,12 @@
+function noteTagValues(text) {
+  return [...new Set(text.split(/\r?\n/).map(tag => {
+    const colon = tag.indexOf(':');
+    return colon < 0 ? tag.trim() : tag.slice(0,colon).trim() + ':' + tag.slice(colon+1).trim();
+  }).filter(Boolean))].sort();
+}
+function noteTagsDirty() {
+  return editorNote && JSON.stringify(noteTagValues($('#edit-tags').value)) !== JSON.stringify([...(editorNote.tags || [])].sort());
+}
 const $ = (selector, root = document) => root.querySelector(selector);
 let today = new Date(), displayedClock = null;
 function key(date) {
@@ -71,7 +80,17 @@ function card(note) {
   time.className = 'note-time';
   time.dateTime = note.created_at;
   time.textContent = 'Added ' + new Intl.DateTimeFormat('en', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(note.created_at));
-  article.append(toolbar,body,time);
+  article.append(toolbar,body);
+  if (note.tags?.length) {
+    const tags = document.createElement('div');
+    tags.className = 'tag-list note-tags';
+    for (const value of note.tags) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip'; chip.textContent = value; tags.append(chip);
+    }
+    article.append(tags);
+  }
+  article.append(time);
   article.ondragstart = event => {
     if (mutationBusy || event.target.closest('button,select,input,textarea')) { event.preventDefault(); return; }
     dragged = note;
@@ -157,7 +176,7 @@ function updateCount(column) {
 function openForm(column, selected) {
   if ($('form', column)) { $('textarea', column).focus(); return; }
   const form = document.createElement('form');
-  form.innerHTML = '<label>Date<input type="date" name="date" required></label><label>Your note<textarea name="body" placeholder="What is on your mind?" maxlength="10000" required></textarea></label><p class="form-error" role="alert"></p><div class="form-actions"><button type="button" class="cancel">Cancel</button><button type="submit" class="insert">Insert note</button></div>';
+  form.innerHTML = '<label>Date<input type="date" name="date" required></label><label>Your note<textarea name="body" placeholder="What is on your mind?" maxlength="10000" required></textarea></label><label>Tags <span class="field-hint">optional, one name:value per line</span><textarea name="tags" maxlength="9000" placeholder="area:personal"></textarea></label><p class="form-error" role="alert"></p><div class="form-actions"><button type="button" class="cancel">Cancel</button><button type="submit" class="insert">Insert note</button></div>';
   form.elements.date.value = selected;
   $('.composer', column).append(form);
   updateCount(column);
@@ -178,7 +197,7 @@ function openForm(column, selected) {
     button.textContent = 'Saving...';
     error.textContent = '';
     try {
-      const {note} = await request('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:selectedDate,body})});
+      const {note} = await request('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:selectedDate,body,tags:noteTagValues(form.elements.tags.value)})});
       form.remove();
       updateCount(column);
       const destination = document.querySelector('[data-date="' + note.date + '"]');
@@ -265,7 +284,7 @@ render();
 const editor = $('#note-editor');
 let editorNote = null, editorToken = 0, editorLoading = false;
 function editorDirty() {
-  return editorNote && ($('#edit-body').value !== editorNote.body || $('#edit-date').value !== editorNote.date || $('#comment-body').value.trim() || [...document.querySelectorAll('.comment-edit textarea')].some(input => input.value !== input.dataset.original));
+  return editorNote && ($('#edit-body').value !== editorNote.body || $('#edit-date').value !== editorNote.date || noteTagsDirty() || $('#comment-body').value.trim() || [...document.querySelectorAll('.comment-edit textarea')].some(input => input.value !== input.dataset.original));
 }
 async function closeEditor() {
   if ((mutationBusy && !noteSavePromise) || editorLoading) { $('#editor-status').textContent = 'Please wait for the current request to finish.'; return; }
@@ -389,6 +408,7 @@ async function openEditor(note) {
     editorNote = data.note;
     $('#edit-date').value = data.note.date;
     $('#edit-body').value = data.note.body;
+    $('#edit-tags').value = (data.note.tags || []).join('\n');
     showComments(data.comments);
     $('#editor-status').textContent = '';
   } catch (err) { $('#editor-status').textContent = 'Could not load note. ' + err.message + ' Close and try again.'; }
@@ -454,7 +474,7 @@ window.addEventListener('focus', checkCalendarClock);
 
 let noteSaveTimer = null, noteSavePromise = null, noteComposing = false;
 function noteDraftDirty() {
-  return editorNote && ($('#edit-body').value !== editorNote.body || $('#edit-date').value !== editorNote.date);
+  return editorNote && ($('#edit-body').value !== editorNote.body || $('#edit-date').value !== editorNote.date || noteTagsDirty());
 }
 function updateCommentSend() {
   $('#send-comment').disabled = !editorNote || editorLoading || mutationBusy || !$('#comment-body').value.trim();
@@ -482,6 +502,7 @@ async function flushNoteAutosave() {
     return false;
   }
   const body = $('#edit-body').value;
+  const rawTags = $('#edit-tags').value, tags = noteTagValues(rawTags);
   let date = $('#edit-date').value;
   if (!body.trim() || !$('#edit-note-form').checkValidity() || [0,6].includes(new Date(date + 'T12:00:00').getDay())) {
     $('#edit-state').textContent = 'Not saved';
@@ -502,10 +523,11 @@ async function flushNoteAutosave() {
           date = latest.note.date;
         }
       }
-      const data = await mutate(editorNote,'edit',{date,body},'Note updated.');
+      const data = await mutate(editorNote,'edit',{date,body,tags},'Note updated.');
       if (!data || token !== editorToken) throw new Error('The change was not saved. Please retry.');
       editorNote = data.note;
       if ($('#edit-body').value === body) $('#edit-body').value = data.note.body;
+      if ($('#edit-tags').value === rawTags) $('#edit-tags').value = (data.note.tags || []).join('\n');
       $('#edit-state').textContent = noteDraftDirty() ? 'Unsaved changes' : 'Saved';
       $('#editor-status').textContent = document.querySelector('[data-date="' + date + '"]') ? '' : 'Saved for ' + date + '.';
       return true;
@@ -538,3 +560,7 @@ $('#comment-body').addEventListener('keydown', event => {
 window.addEventListener('beforeunload', event => {
   if (editor.open && (editorDirty() || noteSavePromise)) { event.preventDefault(); event.returnValue = ''; }
 });
+
+$('#edit-tags').addEventListener('input', event => { if (!event.isComposing) scheduleNoteAutosave(); });
+$('#edit-tags').addEventListener('compositionstart', () => { noteComposing = true; clearTimeout(noteSaveTimer); });
+$('#edit-tags').addEventListener('compositionend', () => { noteComposing = false; scheduleNoteAutosave(); });

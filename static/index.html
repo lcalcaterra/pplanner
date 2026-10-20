@@ -1,20 +1,64 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Your private space for weekly notes."><title>Pplanner - Your week, thoughtfully planned</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Your private space for weekly notes."><title>Pplanner - Your week, thoughtfully planned</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script><script src="/workspace.js" defer></script></head>
 <body>
 <header class="topbar"><a class="brand" href="/" aria-label="Pplanner home"><span class="logo" aria-hidden="true">p<span>&middot;</span></span><span>pplanner<span class="brand-caption">A LITTLE CLARITY, EVERY DAY</span></span></a><div class="top-actions"><span class="private"><span></span> Private workspace</span><button class="settings icon-button" disabled aria-label="Settings (coming soon)" title="Settings coming soon"><img src="/imgs/settings.png" alt="" aria-hidden="true" width="20" height="20"></button></div></header>
-<main>
+
+<nav class="page-nav" aria-label="Main navigation">
+  <a href="#calendar" data-page="calendar" aria-current="page"><span aria-hidden="true">&#9638;</span> Calendar</a>
+  <a href="#projects" data-page="projects"><span aria-hidden="true">&#9671;</span> Projects</a>
+  <a href="#gantt" data-page="gantt"><span aria-hidden="true">&#9645;</span> Gantt</a>
+</nav>
+
+<main id="calendar-page">
 <section class="week-toolbar" aria-label="Week navigation"><div class="week-title"><div class="eyebrow">YOUR PERSONAL PLANNER</div><h1 id="week-title"></h1><p id="week-year"></p></div><div class="week-controls"><button id="previous" class="icon-button arrow" aria-label="Previous week"><img src="/imgs/left-arrow.png" alt="" aria-hidden="true" width="20" height="20"></button><button id="today" class="today-button">This week</button><button id="next" class="icon-button arrow" aria-label="Next week"><img src="/imgs/right-arrow.png" alt="" aria-hidden="true" width="20" height="20"></button></div></section>
 <div class="intro"><span>Big plans. Small steps. A little space for both.</span><span class="hint">Drag to organize &nbsp;&middot;&nbsp; Click a note to make it yours</span></div>
 <p id="status" role="status" aria-live="polite"></p>
 <section id="calendar" class="calendar" aria-label="Monday to Friday calendar"></section>
 <footer><span><span class="footer-dot"></span> Made for a more thoughtful week.</span><span>PRIVATE BY DESIGN. PERSONAL BY NATURE.</span></footer>
 </main>
+
+
+<main id="projects-page" class="workspace-page" hidden>
+<section class="workspace-heading"><div><div class="eyebrow">FROM IDEAS TO OUTCOMES</div><h1>Projects</h1><p>One project. Every step, in focus.</p></div>
+<div class="project-toolbar"><details id="project-add-menu" class="project-add-menu"><summary aria-label="Create a project, task or subtask" title="Create new">+</summary><div class="project-add-options"><button type="button" data-create="project">New project</button><button type="button" data-create="task">New task</button><button type="button" data-create="subtask">New subtask</button></div></details>
+<label class="project-picker">Project<select id="project-select"><option value="">Choose a project</option></select></label></div></section>
+<p id="project-status" class="workspace-status" role="status" aria-live="polite"></p>
+<div id="project-overview" class="project-overview"><p class="workspace-empty">Choose a project, or use + to create your first one.</p></div>
+<div class="project-layout project-workbench">
+<section class="task-panel"><header class="panel-heading"><h2>Tasks</h2><label class="toggle-label"><input id="show-completed-tasks" type="checkbox"> Show completed</label></header>
+<div id="task-list" class="task-list"><p class="workspace-empty">Select a project to see its tasks.</p></div>
+</section>
+<div id="project-discussion-home"><aside class="project-discussion" aria-labelledby="project-comments-title"><header><div class="eyebrow">DISCUSSION</div><h2 id="project-comments-title">Comments</h2><p id="project-comment-context">Choose a project</p><button id="project-discussion-root" class="cancel" type="button" hidden>Project discussion</button></header>
+<p id="project-comment-status" class="workspace-status" role="status" aria-live="polite"></p>
+<div id="project-comment-history" class="project-comment-history" role="log" aria-label="Project and task comments"></div>
+<form id="project-comment-form"><label for="project-comment-body">Add a comment</label><div class="comment-composer"><textarea id="project-comment-body" maxlength="10000" required placeholder="Keep the context close..." disabled></textarea><button id="project-comment-send" type="submit" aria-label="Send comment" title="Send comment (Enter)" disabled>&uarr;</button></div><span class="comment-keyboard-hint">Enter to send, Shift+Enter for a new line</span></form></aside></div>
+</div>
+</main>
+
+<main id="gantt-page" class="workspace-page" hidden>
+  <section class="workspace-heading"><div><div class="eyebrow">THE BIGGER PICTURE</div><h1>Gantt</h1><p>See how your projects unfold over time.</p></div><label class="project-picker">Project<select id="gantt-project-select"><option value="">All projects</option></select></label></section>
+  <p id="gantt-status" class="workspace-status" role="status" aria-live="polite"></p>
+  <div id="gantt-legend" class="gantt-legend" aria-label="Project and phase colors"></div>
+  <div id="gantt-chart" class="gantt-container" tabindex="0" aria-label="Project timeline"></div>
+  <p id="gantt-footnote" class="gantt-footnote"></p>
+</main>
+
 <template id="day-template"><section class="day"><header class="day-header"><div><span class="day-name"></span><div class="day-date-row"><span class="day-number"></span><span class="today-label" hidden>TODAY</span></div></div><button class="add-note" aria-label="Add note"><img src="/imgs/add.png" alt="" aria-hidden="true" width="20" height="20"></button></header><div class="day-content"><div class="composer"></div><div class="notes"></div><div class="empty"><span class="empty-mark" aria-hidden="true">&#10022;</span><p>A little room for possibility.</p><span>Add your first note</span></div></div><div class="day-count"></div></section></template>
+
+<dialog id="task-editor-dialog" aria-label="Edit task or subtask">
+<header class="editor-header"><button id="task-editor-close" class="icon-button" type="button" aria-label="Close task editor">&times;</button></header>
+<p id="task-editor-status" class="workspace-status" role="status" aria-live="polite"></p>
+<div class="task-editor-layout"><section id="task-detail" class="task-detail" aria-label="Task information" hidden></section><div id="task-editor-comments"></div></div>
+</dialog>
+
+<dialog id="workspace-create-dialog" aria-labelledby="workspace-create-title"><header class="workspace-create-header"><h2 id="workspace-create-title">New project</h2><button id="workspace-create-close" type="button" class="icon-button" aria-label="Close creation form">&times;</button></header>
+<p id="workspace-create-status" class="workspace-status" role="status" aria-live="polite"></p><form id="workspace-create-form" class="workspace-form stacked"><div id="workspace-create-fields"></div><button id="workspace-create-submit" class="insert" type="submit">Create</button></form></dialog>
+
 <dialog id="note-editor" aria-label="Edit note and comments">
 <header class="editor-header"><button id="editor-close" type="button" class="icon-button" aria-label="Close note editor">&times;</button></header>
 <p id="editor-status" role="status" aria-live="polite"></p>
-<div class="editor-layout"><form id="edit-note-form"><label for="edit-date">Date</label><input id="edit-date" name="date" type="date" required><label for="edit-body">Your note</label><textarea id="edit-body" name="body" maxlength="10000" required></textarea><div class="editor-save-row"><span id="edit-state" role="status" aria-live="polite"></span><button id="retry-note-save" class="cancel" type="button" hidden>Retry saving</button></div></form>
+<div class="editor-layout"><form id="edit-note-form"><label for="edit-date">Date</label><input id="edit-date" name="date" type="date" required><label for="edit-body">Your note</label><textarea id="edit-body" name="body" maxlength="10000" required></textarea><label for="edit-tags">Tags <span class="field-hint">optional, one name:value per line</span></label><textarea id="edit-tags" name="tags" maxlength="9000" placeholder="area:personal"></textarea><div class="editor-save-row"><span id="edit-state" role="status" aria-live="polite"></span><button id="retry-note-save" class="cancel" type="button" hidden>Retry saving</button></div></form>
 <aside class="comment-panel" aria-labelledby="comments-title"><h3 id="comments-title">Comments</h3><div id="comment-history" role="log" aria-label="Comment history"></div><form id="comment-form"><label for="comment-body">Add a comment</label><div class="comment-composer"><textarea id="comment-body" name="body" placeholder="Leave a thought..." maxlength="10000" aria-describedby="comment-keyboard-hint" required></textarea><button id="send-comment" type="submit" aria-label="Send comment" title="Send comment (Enter)" disabled>&uarr;</button></div><span id="comment-keyboard-hint" class="comment-keyboard-hint">Enter to send, Shift+Enter for a new line</span></form></aside></div>
 </dialog>
 

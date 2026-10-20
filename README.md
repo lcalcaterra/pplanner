@@ -385,3 +385,91 @@ notes, a full scrolling column and the editor. Also try narrow screens, keyboard
 navigation, a dragged note, save failures, comment menus and reduced motion.
 The presentation update preserves every existing HTML element ID used by the
 JavaScript. Interactive browser verification requires a local browser.
+
+## Calendar, Projects and Gantt
+
+Use the navigation bar below the app header to switch pages. Calendar remains
+the default. Projects and Gantt are now backed by the same local SQLite database.
+
+Projects includes project creation/selection, open tasks, task and subtask
+creation, related calendar notes and checkpoint lists. Gantt shows scheduled
+tasks for one or all projects with project/phase colors, labels and tooltips.
+
+See [Projects and Gantt documentation](docs/projects.md) for the data model,
+endpoints, current scope, and manual verification checklist. Restart the server
+after updating to create the new tables, then refresh the browser. No new
+dependencies or configuration are required. The complete integration suite
+contains 22 tests.
+
+## Projects page: creation menu, tags and discussions
+
+Use + beside Choose a project to create a project, task or subtask. Project/task
+descriptions and name:value tags are optional; subtask descriptions are optional.
+Tasks display the inherited project:project_name tag automatically.
+
+Choose one project to see expandable task rows and subtasks. The right-hand
+comment panel follows the selected project/task/subtask, with a labeled context
+and a Project discussion shortcut. Existing note links, checkpoints and Gantt
+schedules are preserved. Details and API documentation are in docs/projects.md.
+
+Restart the server to create the additive tag/comment tables, then refresh.
+No packages were installed. All 25 integration tests pass; interactive browser
+verification remains manual.
+
+## Task/subtask editing
+
+Task rows now sit directly on the Projects page. Click a row to open a task editor
+with autosaving information on the left and comments on the right; use its arrow
+to expand the hierarchy independently. Top-level task editors include subtask
+creation. Existing checkpoints and calendar-note links remain available.
+
+All 27 integration tests pass. See docs/projects.md for editing behavior, API
+details and the manual browser checklist. Restart the server and refresh after
+upgrading; no new dependencies are required.
+
+## Project lifecycle
+
+Project summaries now include an autosaving status selector: Active, Suspended,
+Completed, Rejected or Closed. New and existing projects default to Active unless
+another status is chosen at creation. Status changes do not alter task completion.
+
+Task and subtask editors explicitly indicate autosave, save after a typing pause,
+and flush changes when leaving a field. Restart the server for the automatic
+project-status migration, then refresh your browser. The full integration suite
+now contains 30 tests. See docs/projects.md for details.
+
+## Optional task dates fix
+
+Task and subtask start/end dates are independently optional. Blank dates or only
+one date now save normally. With both dates present, start must be <= end.
+
+Restart the server, then refresh the browser. Startup automatically backs up and
+migrates the old database constraint while preserving existing task relationships.
+Gantt bars require a complete range; incomplete ranges remain saved in Projects.
+
+All 32 integration tests and real-browser partial-date autosave checks pass.
+
+## Restart after backend changes
+
+Stop the running service with Ctrl+C and rerun python3 server.py after changes
+to server.py or project_store.py. A browser refresh does not reload Python code.
+The server detects changed backend files and refuses writes with a clear
+restart-required message rather than applying stale validation. Pending drafts
+remain in the editor. The regression suite currently contains 33 tests.
+
+## Delete projects and work
+
+Use Delete project beside the project's status, or Delete task / Delete subtask
+inside its editor. Confirmations explain the records removed. Child work and its
+discussion/checkpoints are deleted; linked calendar notes and note comments are
+preserved. Deletion is permanent.
+
+All 36 integration tests and real-browser delete/cancel/autosave checks pass.
+See docs/projects.md for cascade behavior. Restart the backend after upgrading;
+a browser refresh alone does not reload Python code.
+
+### Note tags
+
+Calendar notes support optional tags in the same `name:value` format as projects and tasks. Enter one tag per line when creating a note or editing it. Tags appear as chips on calendar cards and autosave with the note; clear the field to remove them. Whitespace and duplicate tags are normalized. Each note supports up to 30 tags (name: 80 characters, value: 200 characters).
+
+Tags are stored locally in SQLite in the `note_tags` table, linked to notes with cascading deletion. Existing notes start without tags; moving, completing, or rolling notes into a new week preserves their tags. Restart the server after upgrading so the additive database migration runs. The note create/edit APIs accept a `tags` array of strings; omitting it during an edit preserves existing tags.
