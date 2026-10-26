@@ -491,3 +491,11 @@ SQLite stores a `position` on each task. `POST /api/tasks/:id/move` accepts `bef
 Tasks and subtasks have autosaved Status and Priority menus in their editor. Status values are Open (default, no icon), Locked, Update required, Loading, and Completed. Priority values are None (default, no icon), High, Medium, and Low. Priority icons appear beside the row title; status icons appear before the phase (subtasks) or subtask count (tasks). The supplied PNG assets also preview the selected menu value.
 
 Completed status follows the existing Show completed filter. Other statuses remain open activities; Locked is a label, so editing remains available. Existing completed tasks migrate to Completed; all other existing tasks default to Open and None. Status and priority persist in SQLite; create/edit task APIs accept `status` and `priority`. The legacy completion API remains synchronized with status. Restart the server after updating to apply the additive migration.
+
+### Visual design
+
+The interface uses a business workspace theme: navy navigation, teal action states, neutral calendar lanes, clear sans-serif typography, and consistent form/card styling. Project-colored notes, status and priority PNGs retain their meaning. The presentation layer is in `static/business.css`, loaded after the structural `style.css`; existing workflows, autosave and drag/drop behavior are unchanged. All fonts and assets remain local, with responsive layouts and visible keyboard focus.
+
+### Project page scrolling
+
+On desktop, the project overview and task list occupy the left column; the discussion panel starts beside the overview and fills the available workspace height. Task/subtask rows and comment history scroll independently, while the discussion header and composer remain visible. Long project descriptions also scroll within a bounded overview. On narrow screens the sections stack, with bounded task and comment lists. Task/subtask editor dialogs retain their existing independent scrolling.

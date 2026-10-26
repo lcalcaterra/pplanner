@@ -146,6 +146,33 @@ TEST_JS = r"""
     await closeTaskEditor();await orderClosed;
     result.checks.push('Task/subtask drag/drop, persistent order, parent boundaries, click-to-edit and no arrow controls');
 
+    if(new URL(location.href).searchParams.has('layout')) {
+      for(let index=0;index<20;index++) {
+        await workspacePost('/api/tasks',{project_id:orderProject.id,title:'Overflow task '+index});
+        await workspacePost('/api/projects/'+orderProject.id+'/comments',{body:'Project comment '+index+' with enough text to exercise scrolling.'});
+      }
+      await loadProject();
+      for(let attempt=0;attempt<60&&document.querySelectorAll('#project-comment-history .comment').length<20;attempt++)await pause(50);
+      const overview=document.querySelector('#project-overview');
+      const discussion=document.querySelector('#project-discussion-home > .project-discussion');
+      const taskList=document.querySelector('#task-list');
+      const history=document.querySelector('#project-comment-history');
+      const composer=document.querySelector('#project-comment-form');
+      const rect=discussion.getBoundingClientRect();
+      assert(Math.abs(rect.top-overview.getBoundingClientRect().top)<2,'Discussion must align with project overview');
+      assert(overview.getBoundingClientRect().right<rect.left,'Overview should leave room for discussion');
+      assert(rect.bottom<=window.innerHeight+1,'Discussion extends below viewport');
+      assert(taskList.scrollHeight>taskList.clientHeight,'Task list does not overflow independently');
+      assert(history.scrollHeight>history.clientHeight,'Comment history does not overflow independently');
+      const height=rect.height,composerTop=composer.getBoundingClientRect().top;
+      taskList.scrollTop=150;history.scrollTop=120;
+      assert(taskList.scrollTop>0&&history.scrollTop>0,'Independent scrolling failed');
+      assert(Math.abs(discussion.getBoundingClientRect().height-height)<1,'Discussion height changed while scrolling');
+      assert(Math.abs(composer.getBoundingClientRect().top-composerTop)<1,'Composer moved while scrolling');
+      assert(composer.getBoundingClientRect().bottom<=rect.bottom,'Composer is outside discussion');
+      result.checks.push('Project overview alignment, fixed discussion, independent task/comment scroll and visible composer');
+    }
+
     const coloredProject=(await workspacePost('/api/projects',{name:'Note color browser',color:'#123456'})).project;
     await render();
     const column=document.querySelector('#calendar .day');

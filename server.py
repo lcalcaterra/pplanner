@@ -165,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(200, {"note": project_store.note_record(db,note), "comments": comments})
             return
         paths = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
-                 "/style.css": ("style.css", "text/css"), "/workspace.js": ("workspace.js", "text/javascript")}
+                 "/style.css": ("style.css", "text/css"), "/business.css": ("business.css", "text/css"), "/workspace.js": ("workspace.js", "text/javascript")}
         for icon in ("left-arrow", "right-arrow", "settings", "add", "bin", "calendar", "project", "gantt", "locked", "update-required", "loading", "completed", "high-priority", "medium-priority", "low-priority"):
             paths[f"/imgs/{icon}.png"] = (f"../imgs/{icon}.png", "image/png")
         if url.path not in paths:
