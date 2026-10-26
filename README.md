@@ -473,3 +473,21 @@ a browser refresh alone does not reload Python code.
 Calendar notes support optional tags in the same `name:value` format as projects and tasks. Enter one tag per line when creating a note or editing it. Tags appear as chips on calendar cards and autosave with the note; clear the field to remove them. Whitespace and duplicate tags are normalized. Each note supports up to 30 tags (name: 80 characters, value: 200 characters).
 
 Tags are stored locally in SQLite in the `note_tags` table, linked to notes with cascading deletion. Existing notes start without tags; moving, completing, or rolling notes into a new week preserves their tags. Restart the server after upgrading so the additive database migration runs. The note create/edit APIs accept a `tags` array of strings; omitting it during an edit preserves existing tags.
+
+### Project colors and jumping to a week
+
+Select an optional **Project** when creating or editing a calendar note. Each note links to one project and displays its name and a tint of its color; changing the selection autosaves. Other name:value tags remain independent. Project links survive note moves and rollover. Deleting a project removes the link while preserving the note and comments. The API accepts nullable `project_id`; omitted on edits preserves the link. The additive `note_projects` table stores links by project ID.
+
+Click the calendar icon next to **This week** to choose a date using your browser's month/date picker. Any selected date opens its Monday?Friday week, including dates across month/year boundaries. The Calendar navigation button also uses `imgs/calendar.png`. Restart the server once after updating, then refresh the browser.
+
+### Ordering project tasks
+
+Drag task and subtask rows above or below another sibling to arrange them. A purple insertion line previews the drop position. Alt+Up/Down also reorders the focused row. Order saves immediately and persists across reloads. Top-level tasks remain in their project; subtasks remain under their existing parent. When completed tasks are hidden, drag and drop moves among visible siblings. New tasks and subtasks appear first. Existing order is preserved during the automatic migration on server restart.
+
+SQLite stores a `position` on each task. `POST /api/tasks/:id/move` accepts `before_id` (a sibling task ID, or null to move last), validates sibling membership and saves the order atomically.
+
+### Task status and priority
+
+Tasks and subtasks have autosaved Status and Priority menus in their editor. Status values are Open (default, no icon), Locked, Update required, Loading, and Completed. Priority values are None (default, no icon), High, Medium, and Low. Priority icons appear beside the row title; status icons appear before the phase (subtasks) or subtask count (tasks). The supplied PNG assets also preview the selected menu value.
+
+Completed status follows the existing Show completed filter. Other statuses remain open activities; Locked is a label, so editing remains available. Existing completed tasks migrate to Completed; all other existing tasks default to Open and None. Status and priority persist in SQLite; create/edit task APIs accept `status` and `priority`. The legacy completion API remains synchronized with status. Restart the server after updating to apply the additive migration.

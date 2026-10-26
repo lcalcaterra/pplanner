@@ -12,7 +12,25 @@ def valid_status(value):
         raise ValueError("Status must be active, suspended, completed, rejected, or closed.")
     return value
 
+TASK_STATUSES = ("open","locked","update-required","loading","completed")
+TASK_PRIORITIES = ("none","high","medium","low")
+
+def activity_value(value, choices, label):
+    if not isinstance(value,str) or value not in choices:
+        raise ValueError("Choose a valid "+label+".")
+    return value
+
 def migrate(db):
+    task_columns={record["name"] for record in db.execute("PRAGMA table_info(project_tasks)")}
+    if "status" not in task_columns:
+        db.execute("ALTER TABLE project_tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'open'")
+        db.execute("UPDATE project_tasks SET status='completed' WHERE completed=1")
+    if "priority" not in task_columns:
+        db.execute("ALTER TABLE project_tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'none'")
+    if "position" not in task_columns:
+        db.execute("ALTER TABLE project_tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+        # Preserve the previous root (newest first) and child (oldest first) order.
+        db.execute("UPDATE project_tasks SET position=CASE WHEN parent_id IS NULL THEN -id ELSE id END")
     columns={record["name"] for record in db.execute("PRAGMA table_info(projects)")}
     if "status" not in columns:
         db.execute("ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended','completed','rejected','closed'))")
@@ -82,7 +100,7 @@ def task_rows(db, project_id=None):
     sql = """SELECT t.*, p.name AS project_name, p.color AS project_color,
              ph.name AS phase_name FROM project_tasks t
              JOIN projects p ON p.id=t.project_id LEFT JOIN project_phases ph ON ph.id=t.phase_id"""
-    return [metadata(db,dict(r),"task") for r in db.execute(sql + (" WHERE t.project_id = ?" if project_id else "") + " ORDER BY t.id DESC", (project_id,) if project_id else ())]
+    return [metadata(db,dict(r),"task") for r in db.execute(sql + (" WHERE t.project_id = ?" if project_id else "") + " ORDER BY t.position,t.id DESC", (project_id,) if project_id else ())]
 
 def read(db, path, query):
     parts = path.strip("/").split("/")
@@ -105,7 +123,7 @@ def read(db, path, query):
         task = row(db,"project_tasks",item_id)
         return {"task":task,
                 "comments":discussion(db,task["project_id"],item_id),
-                "subtasks":[metadata(db,dict(r),"task") for r in db.execute("SELECT * FROM project_tasks WHERE parent_id=? ORDER BY id",(item_id,))],
+                "subtasks":[metadata(db,dict(r),"task") for r in db.execute("SELECT * FROM project_tasks WHERE parent_id=? ORDER BY position,id DESC",(item_id,))],
                 "notes":[dict(r) for r in db.execute("SELECT n.* FROM notes n JOIN task_notes l ON l.note_id=n.id WHERE l.task_id=? ORDER BY n.date DESC,n.id DESC",(item_id,))],
                 "checkpoints":[dict(r) for r in db.execute("SELECT * FROM task_checkpoints WHERE task_id=? ORDER BY id",(item_id,))]}
     raise LookupError("Not found.")
@@ -160,6 +178,11 @@ def write(db,path,payload):
         elif parent_id:
             phase_id=parent["phase_id"]
         cursor=db.execute("INSERT INTO project_tasks(project_id,parent_id,phase_id,title,description,start_date,end_date) VALUES (?,?,?,?,?,?,?)",(project_id,parent_id,phase_id,title,description,start,end))
+        position=db.execute("SELECT COALESCE(MIN(position),0)-1 FROM project_tasks WHERE project_id=? AND parent_id IS ? AND id!=?",(project_id,parent_id,cursor.lastrowid)).fetchone()[0]
+        db.execute("UPDATE project_tasks SET position=? WHERE id=?",(position,cursor.lastrowid))
+        status=activity_value(payload.get("status","open"),TASK_STATUSES,"activity status")
+        priority=activity_value(payload.get("priority","none"),TASK_PRIORITIES,"priority")
+        db.execute("UPDATE project_tasks SET status=?,priority=?,completed=? WHERE id=?",(status,priority,int(status=="completed"),cursor.lastrowid))
         store_tags(db,"task",cursor.lastrowid,tags)
         return 201,{"task":row(db,"project_tasks",cursor.lastrowid)}
     parts=path.strip("/").split("/")
@@ -181,6 +204,19 @@ def write(db,path,payload):
     task_id=int(parts[2])
     row(db,"project_tasks",task_id)
     action=parts[3]
+    if action=="move":
+        task=row(db,"project_tasks",task_id)
+        before=payload.get("before_id")
+        if before is not None:
+            identifier(before)
+            if before==task_id:
+                raise ValueError("A task cannot be placed before itself.")
+        ids=[r[0] for r in db.execute("SELECT id FROM project_tasks WHERE project_id=? AND parent_id IS ? AND id!=? ORDER BY position,id DESC",(task["project_id"],task["parent_id"],task_id))]
+        if before is not None and before not in ids:
+            raise ValueError("Reorder only tasks in the same project and under the same parent.")
+        ids.insert(ids.index(before) if before is not None else len(ids),task_id)
+        db.executemany("UPDATE project_tasks SET position=? WHERE id=?",[(index,value) for index,value in enumerate(ids)])
+        return 200,{"tasks":task_rows(db,task["project_id"])}
     if action=="delete":
         task=row(db,"project_tasks",task_id)
         db.execute("DELETE FROM project_tasks WHERE id=?",(task_id,))
@@ -189,6 +225,8 @@ def write(db,path,payload):
         task=row(db,"project_tasks",task_id)
         if ("project_id" in payload and payload["project_id"]!=task["project_id"]) or ("parent_id" in payload and payload["parent_id"]!=task["parent_id"]):
             raise ValueError("Project and parent membership cannot be changed in this editor.")
+        status=activity_value(payload.get("status",task["status"]),TASK_STATUSES,"activity status")
+        priority=activity_value(payload.get("priority",task["priority"]),TASK_PRIORITIES,"priority")
         title=text(payload.get("title"),"Task title",200,True)
         description=text(payload.get("description",""),"Description")
         start,end=schedule(payload)
@@ -201,13 +239,14 @@ def write(db,path,payload):
                 db.execute("INSERT OR IGNORE INTO project_phases(project_id,name) VALUES (?,?)",(task["project_id"],phase))
                 phase_id=db.execute("SELECT id FROM project_phases WHERE project_id=? AND name=?",(task["project_id"],phase)).fetchone()[0]
         db.execute("UPDATE project_tasks SET title=?,description=?,start_date=?,end_date=?,phase_id=? WHERE id=?",(title,description,start,end,phase_id,task_id))
+        db.execute("UPDATE project_tasks SET status=?,priority=?,completed=? WHERE id=?",(status,priority,int(status=="completed"),task_id))
         db.execute("DELETE FROM task_tags WHERE task_id=?",(task_id,))
         store_tags(db,"task",task_id,pairs)
         return 200,{"task":row(db,"project_tasks",task_id)}
     if action=="update":
         if "completed" not in payload or type(payload["completed"]) is not bool:
             raise ValueError("completed must be a boolean.")
-        db.execute("UPDATE project_tasks SET completed=? WHERE id=?",(int(payload["completed"]),task_id))
+        db.execute("UPDATE project_tasks SET completed=?,status=? WHERE id=?",(int(payload["completed"]),"completed" if payload["completed"] else "open",task_id))
         return 200,{"task":row(db,"project_tasks",task_id)}
     if action=="checkpoints":
         title=text(payload.get("title"),"Checkpoint",500,True)
@@ -366,8 +405,25 @@ CREATE TABLE IF NOT EXISTS note_tags (
 def note_record(db,record):
     note=dict(record)
     note["tags"]=[item["name"]+":"+item["value"] for item in db.execute("SELECT name,value FROM note_tags WHERE note_id=? ORDER BY name,value",(note["id"],))]
+    project=db.execute("SELECT p.id,p.name,p.color FROM projects p JOIN note_projects l ON l.project_id=p.id WHERE l.note_id=?",(note["id"],)).fetchone()
+    note["project"]=dict(project) if project else None
+    note["project_id"]=project["id"] if project else None
     return note
 
 def replace_note_tags(db,note_id,pairs):
     db.execute("DELETE FROM note_tags WHERE note_id=?",(note_id,))
     db.executemany("INSERT INTO note_tags(note_id,name,value) VALUES (?,?,?)",[(note_id,name,value) for name,value in pairs])
+
+SCHEMA += """
+CREATE TABLE IF NOT EXISTS note_projects (
+ note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+ project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE
+);
+"""
+
+def set_note_project(db,note_id,project_id):
+    if project_id is not None:
+        row(db,"projects",project_id)
+    db.execute("DELETE FROM note_projects WHERE note_id=?",(note_id,))
+    if project_id is not None:
+        db.execute("INSERT INTO note_projects VALUES (?,?)",(note_id,project_id))

@@ -89,10 +89,35 @@ async function flushTaskSave() {
   if(taskSavePromise===active)taskSavePromise=null;
   return saved&&taskDirty()?flushTaskSave():saved;
 }
+const activityStatuses=['open','locked','update-required','loading','completed'];
+const activityPriorities=['none','high','medium','low'];
+function activityLabel(value) {return value.split('-').map(word=>word[0].toUpperCase()+word.slice(1)).join(' ');}
+function activityIcon(value,kind) {
+  if(value==='open'||value==='none')return null;
+  const img=element('img');
+  img.className='activity-icon '+kind+'-icon';
+  img.src='/imgs/'+value+(kind==='priority'?'-priority':'')+'.png';
+  img.alt=activityLabel(value)+(kind==='priority'?' priority':' status');
+  img.title=img.alt;img.width=20;img.height=20;img.draggable=false;
+  return img;
+}
 function buildTaskEditForm(task) {
   const form=element('form',undefined,'workspace-form stacked');
   form.id='task-edit-form';
   form.innerHTML='<label>Title<input name="title" maxlength="200" required></label><label>Description <span class="optional-label">optional</span><textarea name="description" maxlength="10000"></textarea></label><label>Tags <span class="optional-label">one name:value per line</span><textarea name="tags" maxlength="9000"></textarea></label><label>Phase <span class="optional-label">optional</span><input name="phase" maxlength="120"></label><div class="date-pair"><label>Start<input name="start_date" type="date"></label><label>End<input name="end_date" type="date"></label></div>';
+  const activity=element('div',undefined,'activity-fields');
+  for(const [name,values] of [['status',activityStatuses],['priority',activityPriorities]]) {
+    const label=element('label',name==='status'?'Status':'Priority');
+    const control=element('div',undefined,'activity-control');
+    const select=element('select');select.name=name;
+    values.forEach(value=>select.add(new Option(activityLabel(value),value)));
+    select.value=task[name]||(name==='status'?'open':'none');
+    const preview=element('span',undefined,'activity-preview');preview.setAttribute('aria-hidden','true');
+    const update=()=>{preview.replaceChildren();const icon=activityIcon(select.value,name);if(icon)preview.append(icon);};
+    select.addEventListener('change',update);update();
+    control.append(select,preview);label.append(control);activity.append(label);
+  }
+  form.prepend(activity);
   form.elements.title.value=task.title;
   form.elements.description.value=task.description;
   form.elements.tags.value=(task.tags||[]).join('\n');
@@ -137,6 +162,7 @@ async function deleteTaskRecord(task,button) {
   const kind=task.parent_id?'subtask':'task';
   if(!confirm('Delete '+kind+' "'+task.title+'"? Its subtasks, comments and checkpoints will also be deleted. Linked calendar notes are kept. This cannot be undone.'))return;
   taskDeleting=true;workspace.deleting=true;
+  $('#task-edit-form')?.querySelectorAll('select').forEach(select=>select.disabled=true);
   clearTimeout(taskSaveTimer);button.disabled=true;
   const fields=[...document.querySelectorAll('#task-edit-form input,#task-edit-form textarea')];
   const readonly=fields.map(field=>field.readOnly);
@@ -158,6 +184,7 @@ async function deleteTaskRecord(task,button) {
     $('#task-editor-status').textContent='Could not delete. '+err.message;
   } finally {
     taskDeleting=false;workspace.deleting=false;button.disabled=false;
+    $('#task-edit-form')?.querySelectorAll('select').forEach(select=>select.disabled=false);
     fields.forEach((field,index)=>field.readOnly=readonly[index]);
   }
 }
@@ -216,21 +243,11 @@ async function openTask(id) {
     const heading=element('div',undefined,'task-detail-heading');
     const title=element('h2',task.title);
     title.id='task-edit-heading';
-    const toggle=element('button',task.completed ? 'Reopen task' : 'Complete task','today-button');
-    toggle.type='button';
-    toggle.onclick=async()=>{
-      toggle.disabled=true;
-      try {
-        if(!await flushTaskSave()){toggle.disabled=false;return;}
-        await workspacePost('/api/tasks/'+id+'/update',{completed:!task.completed});
-        await loadProject(); await openTask(id);
-      } catch(err) { $('#project-status').textContent=err.message; toggle.disabled=false; }
-    };
     const remove=element('button',task.parent_id?'Delete subtask':'Delete task','danger-button');
     remove.id='task-delete';remove.type='button';
     remove.onclick=()=>deleteTaskRecord(task,remove);
     const actions=element('div',undefined,'record-actions');
-    actions.append(toggle,remove);
+    actions.append(remove);
     heading.append(title,actions);
     detail.replaceChildren(heading);
     detail.append(element('p','Changes save automatically as you type.','task-autosave-hint'));
@@ -327,6 +344,26 @@ function tagChips(tags,inherited=[]) {
 function markTaskSelection() {
   document.querySelectorAll('.task-tree').forEach(tree=>tree.classList.toggle('selected',Number(tree.dataset.taskId)===workspace.taskId));
 }
+let taskOrderBusy=false, draggedTask=null, taskDragClickUntil=0;
+async function moveTask(task,beforeId) {
+  if(taskOrderBusy||workspace.deleting)return;
+  taskOrderBusy=true;
+  const projectId=workspace.projectId;
+  $('#project-status').textContent='Saving order...';
+  try {
+    const data=await workspacePost('/api/tasks/'+task.id+'/move',{before_id:beforeId});
+    if(workspace.projectId!==projectId)return;
+    workspace.tasks=data.tasks;
+    paintTasks();
+    $('#project-status').textContent='Order saved.';
+    document.querySelector('.task-tree[data-task-id="'+task.id+'"] > summary')?.focus({preventScroll:true});
+  } catch(error) {
+    if(workspace.projectId===projectId){paintTasks();$('#project-status').textContent='Could not save order. '+error.message;}
+  } finally {taskOrderBusy=false;}
+}
+function clearTaskDropHints() {
+  document.querySelectorAll('.task-drop-before,.task-drop-after').forEach(row=>row.classList.remove('task-drop-before','task-drop-after'));
+}
 function paintTasks() {
   const list=$('#task-list'), showDone=$('#show-completed-tasks').checked;
   function visible(task,seen=new Set()) {
@@ -342,8 +379,12 @@ function paintTasks() {
     const content=element('div',undefined,'task-row-content');
     const titleButton=element('button',task.title,'task-tree-title task-open-button');
     titleButton.type='button';
-    titleButton.onclick=event=>{event.preventDefault();event.stopPropagation();openTask(task.id);};
-    content.append(titleButton);
+    titleButton.onclick=event=>{event.preventDefault();event.stopPropagation();if(Date.now()>=taskDragClickUntil)openTask(task.id);};
+    const titleRow=element('div',undefined,'task-title-row');
+    titleRow.append(titleButton);
+    const priorityIcon=activityIcon(task.priority||'none','priority');
+    if(priorityIcon)titleRow.append(priorityIcon);
+    content.append(titleRow);
     content.append(tagChips(task.tags||[],task.parent_id?[]:task.inherited_tags||[]));
     const expander=element('button','\u203a','task-disclosure');
     expander.type='button';expander.setAttribute('aria-label','Expand or collapse subtasks');
@@ -351,10 +392,64 @@ function paintTasks() {
     expander.onclick=event=>{event.preventDefault();event.stopPropagation();tree.open=!tree.open;};
     summary.append(expander,element('span',task.completed?'\u2713':'\u25cb','task-marker'),content);
     const children=workspace.tasks.filter(child=>child.parent_id===task.id);
-    summary.append(element('small',children.length ? children.length+' subtasks' : task.phase_name||'','task-tree-meta'));
+    const statusIcon=activityIcon(task.status||'open','status');
+    if(statusIcon)summary.append(statusIcon);
+    summary.append(element('small',task.parent_id ? task.phase_name||'' : children.length+' subtasks','task-tree-meta'));
+    summary.draggable=true;
+    summary.title='Drag to reorder. Click to edit. Alt+Up/Down to reorder with the keyboard.';
+    summary.addEventListener('dragstart',event=>{
+      if(taskOrderBusy||workspace.deleting||event.target.closest('.task-disclosure')){event.preventDefault();return;}
+      event.stopPropagation();
+      draggedTask=task;
+      taskDragClickUntil=Date.now()+500;
+      event.dataTransfer.effectAllowed='move';
+      event.dataTransfer.setData('text/plain',String(task.id));
+      tree.classList.add('task-dragging');
+    });
+    summary.addEventListener('dragend',()=>{
+      draggedTask=null;taskDragClickUntil=Date.now()+250;
+      tree.classList.remove('task-dragging');
+      clearTaskDropHints();
+    });
+    const dropLocation=event=>{
+      const peers=workspace.tasks.filter(item=>item.parent_id===task.parent_id&&visible(item)&&item.id!==draggedTask.id);
+      const index=peers.findIndex(item=>item.id===task.id);
+      const rect=summary.getBoundingClientRect();
+      const after=event.clientY>=rect.top+rect.height/2;
+      return {after,beforeId:after?(peers[index+1]?.id??null):task.id};
+    };
+    summary.addEventListener('dragover',event=>{
+      event.stopPropagation();clearTaskDropHints();
+      if(!draggedTask||taskOrderBusy||draggedTask.id===task.id||draggedTask.parent_id!==task.parent_id||draggedTask.project_id!==task.project_id)return;
+      event.preventDefault();event.dataTransfer.dropEffect='move';
+      summary.classList.add(dropLocation(event).after?'task-drop-after':'task-drop-before');
+      // Scroll the nearest scrollable container, or the page.
+      let scroll=summary.parentElement;
+      while(scroll&&!(scroll.scrollHeight>scroll.clientHeight&&/(auto|scroll)/.test(getComputedStyle(scroll).overflowY)))scroll=scroll.parentElement;
+      const area=scroll?scroll.getBoundingClientRect():{top:0,bottom:window.innerHeight};
+      const amount=event.clientY<area.top+65?-18:event.clientY>area.bottom-65?18:0;
+      if(amount){if(scroll)scroll.scrollTop+=amount;else window.scrollBy(0,amount);}
+    });
+    summary.addEventListener('dragleave',()=>summary.classList.remove('task-drop-before','task-drop-after'));
+    summary.addEventListener('drop',event=>{
+      event.stopPropagation();clearTaskDropHints();
+      if(!draggedTask||taskOrderBusy||draggedTask.id===task.id||draggedTask.parent_id!==task.parent_id||draggedTask.project_id!==task.project_id)return;
+      event.preventDefault();
+      const beforeId=dropLocation(event).beforeId,source=draggedTask;
+      draggedTask=null;taskDragClickUntil=Date.now()+500;
+      moveTask(source,beforeId);
+    });
+    summary.addEventListener('keydown',event=>{
+      if(!event.altKey||!['ArrowUp','ArrowDown'].includes(event.key))return;
+      event.preventDefault();event.stopPropagation();
+      const peers=workspace.tasks.filter(item=>item.parent_id===task.parent_id&&visible(item));
+      const index=peers.findIndex(item=>item.id===task.id);
+      if(event.key==='ArrowUp'&&index>0)moveTask(task,peers[index-1].id);
+      if(event.key==='ArrowDown'&&index<peers.length-1)moveTask(task,peers[index+2]?.id??null);
+    });
     summary.onclick=event=>{
       if(event.target.closest('.task-disclosure,.task-open-button'))return;
-      event.preventDefault();openTask(task.id);
+      event.preventDefault();if(Date.now()>=taskDragClickUntil)openTask(task.id);
     };
     tree.append(summary);
     const body=element('div',undefined,'task-tree-children');

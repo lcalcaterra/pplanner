@@ -8,7 +8,7 @@ function noteTagsDirty() {
   return editorNote && JSON.stringify(noteTagValues($('#edit-tags').value)) !== JSON.stringify([...(editorNote.tags || [])].sort());
 }
 const $ = (selector, root = document) => root.querySelector(selector);
-let today = new Date(), displayedClock = null;
+let today = new Date(), displayedClock = null, chosenWeek = false;
 function key(date) {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
 }
@@ -30,6 +30,14 @@ function card(note) {
   const article = document.createElement('article');
   article.className = 'note' + (note.completed ? ' completed' : '');
   article.dataset.id = note.id;
+  if (note.project) {
+    article.classList.add('project-note');
+    article.style.setProperty('--note-project-color', note.project.color);
+    const badge=document.createElement('span');
+    badge.className='tag-chip note-project-badge';
+    badge.textContent='project:'+note.project.name;
+    article.append(badge);
+  }
   article.draggable = true;
   article.tabIndex = 0;
   article.title = 'Click to edit. Drag to move.';
@@ -176,8 +184,9 @@ function updateCount(column) {
 function openForm(column, selected) {
   if ($('form', column)) { $('textarea', column).focus(); return; }
   const form = document.createElement('form');
-  form.innerHTML = '<label>Date<input type="date" name="date" required></label><label>Your note<textarea name="body" placeholder="What is on your mind?" maxlength="10000" required></textarea></label><label>Tags <span class="field-hint">optional, one name:value per line</span><textarea name="tags" maxlength="9000" placeholder="area:personal"></textarea></label><p class="form-error" role="alert"></p><div class="form-actions"><button type="button" class="cancel">Cancel</button><button type="submit" class="insert">Insert note</button></div>';
+  form.innerHTML = '<label>Date<input type="date" name="date" required></label><label>Your note<textarea name="body" placeholder="What is on your mind?" maxlength="10000" required></textarea></label><label>Project<select name="project_id"><option value="">Loading projects...</option></select></label><label>Tags <span class="field-hint">optional, one name:value per line</span><textarea name="tags" maxlength="9000" placeholder="area:personal"></textarea></label><p class="form-error" role="alert"></p><div class="form-actions"><button type="button" class="cancel">Cancel</button><button type="submit" class="insert">Insert note</button></div>';
   form.elements.date.value = selected;
+  fillNoteProjects(form.elements.project_id).catch(error => { $('.form-error',form).textContent=error.message; });
   $('.composer', column).append(form);
   updateCount(column);
   $('.day-content', column).scrollTop = 0;
@@ -197,7 +206,7 @@ function openForm(column, selected) {
     button.textContent = 'Saving...';
     error.textContent = '';
     try {
-      const {note} = await request('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:selectedDate,body,tags:noteTagValues(form.elements.tags.value)})});
+      const {note} = await request('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:selectedDate,body,project_id:form.elements.project_id.value ? Number(form.elements.project_id.value) : null,tags:noteTagValues(form.elements.tags.value)})});
       form.remove();
       updateCount(column);
       const destination = document.querySelector('[data-date="' + note.date + '"]');
@@ -220,7 +229,7 @@ async function render(preserveDrafts = false) {
     if (preserveDrafts === true && (mutationBusy || pendingCreates || editor.open || document.querySelector('.composer form') || dragged)) return;
     const oldMonday = key(monday(today));
     today = new Date(clock.today + 'T12:00:00');
-    if (!displayedClock || key(week) === oldMonday) week = monday(today);
+    if (!chosenWeek && (!displayedClock || key(week) === oldMonday)) week = monday(today);
     displayedClock = clock.today;
   } catch (err) {
     if (current !== generation) return;
@@ -276,15 +285,15 @@ async function render(preserveDrafts = false) {
     $('#status').append(retry);
   }
 }
-$('#previous').onclick = () => { week = shift(week,-7); render(); };
-$('#next').onclick = () => { week = shift(week,7); render(); };
-$('#today').onclick = () => { week = monday(today); render(); };
+$('#previous').onclick = () => { chosenWeek = true; week = shift(week,-7); render(); };
+$('#next').onclick = () => { chosenWeek = true; week = shift(week,7); render(); };
+$('#today').onclick = () => { chosenWeek = false; week = monday(today); render(); };
 render();
 
 const editor = $('#note-editor');
 let editorNote = null, editorToken = 0, editorLoading = false;
 function editorDirty() {
-  return editorNote && ($('#edit-body').value !== editorNote.body || $('#edit-date').value !== editorNote.date || noteTagsDirty() || $('#comment-body').value.trim() || [...document.querySelectorAll('.comment-edit textarea')].some(input => input.value !== input.dataset.original));
+  return editorNote && ($('#edit-body').value !== editorNote.body || $('#edit-date').value !== editorNote.date || noteTagsDirty() || noteProjectDirty() || $('#comment-body').value.trim() || [...document.querySelectorAll('.comment-edit textarea')].some(input => input.value !== input.dataset.original));
 }
 async function closeEditor() {
   if ((mutationBusy && !noteSavePromise) || editorLoading) { $('#editor-status').textContent = 'Please wait for the current request to finish.'; return; }
@@ -400,7 +409,7 @@ async function openEditor(note) {
   $('#edit-state').textContent = '';
   $('#retry-note-save').hidden = true;
   $('#editor-status').textContent = 'Loading note...';
-  editor.querySelectorAll('input,textarea,button[type="submit"]').forEach(el => el.disabled = true);
+  editor.querySelectorAll('input,textarea,select,button[type="submit"]').forEach(el => el.disabled = true);
   editor.showModal();
   try {
     const data = await request('/api/notes/' + note.id);
@@ -409,12 +418,13 @@ async function openEditor(note) {
     $('#edit-date').value = data.note.date;
     $('#edit-body').value = data.note.body;
     $('#edit-tags').value = (data.note.tags || []).join('\n');
+    await fillNoteProjects($('#edit-project'),data.note.project_id);
     showComments(data.comments);
     $('#editor-status').textContent = '';
   } catch (err) { $('#editor-status').textContent = 'Could not load note. ' + err.message + ' Close and try again.'; }
   finally {
     editorLoading = false;
-    editor.querySelectorAll('input,textarea,button[type="submit"]').forEach(el => el.disabled = !editorNote);
+    editor.querySelectorAll('input,textarea,select,button[type="submit"]').forEach(el => el.disabled = !editorNote);
     updateCommentSend();
     if (editorNote) $('#edit-body').focus();
   }
@@ -435,9 +445,9 @@ async function editorMutation(action, payload, message) {
   if (!await flushNoteAutosave()) return;
   if (mutationBusy) return;
   $('#editor-status').textContent = 'Saving...';
-  editor.querySelectorAll('button,input,textarea').forEach(el => el.disabled = true);
+  editor.querySelectorAll('button,input,textarea,select').forEach(el => el.disabled = true);
   const result = await mutate(editorNote,action,payload,message);
-  editor.querySelectorAll('button,input,textarea').forEach(el => el.disabled = false);
+  editor.querySelectorAll('button,input,textarea,select').forEach(el => el.disabled = false);
   updateCommentSend();
   return result;
 }
@@ -474,7 +484,7 @@ window.addEventListener('focus', checkCalendarClock);
 
 let noteSaveTimer = null, noteSavePromise = null, noteComposing = false;
 function noteDraftDirty() {
-  return editorNote && ($('#edit-body').value !== editorNote.body || $('#edit-date').value !== editorNote.date || noteTagsDirty());
+  return editorNote && ($('#edit-body').value !== editorNote.body || $('#edit-date').value !== editorNote.date || noteTagsDirty() || noteProjectDirty());
 }
 function updateCommentSend() {
   $('#send-comment').disabled = !editorNote || editorLoading || mutationBusy || !$('#comment-body').value.trim();
@@ -503,6 +513,7 @@ async function flushNoteAutosave() {
   }
   const body = $('#edit-body').value;
   const rawTags = $('#edit-tags').value, tags = noteTagValues(rawTags);
+  const project_id = $('#edit-project').value ? Number($('#edit-project').value) : null;
   let date = $('#edit-date').value;
   if (!body.trim() || !$('#edit-note-form').checkValidity() || [0,6].includes(new Date(date + 'T12:00:00').getDay())) {
     $('#edit-state').textContent = 'Not saved';
@@ -523,7 +534,7 @@ async function flushNoteAutosave() {
           date = latest.note.date;
         }
       }
-      const data = await mutate(editorNote,'edit',{date,body,tags},'Note updated.');
+      const data = await mutate(editorNote,'edit',{date,body,tags,project_id},'Note updated.');
       if (!data || token !== editorToken) throw new Error('The change was not saved. Please retry.');
       editorNote = data.note;
       if ($('#edit-body').value === body) $('#edit-body').value = data.note.body;
@@ -564,3 +575,33 @@ window.addEventListener('beforeunload', event => {
 $('#edit-tags').addEventListener('input', event => { if (!event.isComposing) scheduleNoteAutosave(); });
 $('#edit-tags').addEventListener('compositionstart', () => { noteComposing = true; clearTimeout(noteSaveTimer); });
 $('#edit-tags').addEventListener('compositionend', () => { noteComposing = false; scheduleNoteAutosave(); });
+
+async function fillNoteProjects(select, selected=null) {
+  select.disabled=true;
+  try {
+    const data=await request('/api/projects');
+    select.replaceChildren(new Option('No project',''));
+    for (const project of data.projects) select.add(new Option(project.name,String(project.id)));
+    select.value=selected == null ? '' : String(selected);
+  } finally { select.disabled=false; }
+}
+function noteProjectDirty() {
+  return editorNote && ($('#edit-project').value || '') !== String(editorNote.project_id || '');
+}
+$('#edit-project').addEventListener('change',scheduleNoteAutosave);
+$('#jump-week').onclick=()=>{
+  const input=$('#week-date');
+  input.value=key(week);
+  $('#week-date-fallback').hidden=false;
+  if (typeof input.showPicker==='function') {
+    try { input.showPicker(); } catch { input.focus(); }
+  } else input.focus();
+};
+$('#week-date').addEventListener('change',()=>{
+  const value=$('#week-date').value;
+  if (!value) return;
+  week=monday(new Date(value+'T12:00:00'));
+  chosenWeek=true;
+  $('#week-date-fallback').hidden=true;
+  render();
+});

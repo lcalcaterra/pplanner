@@ -45,6 +45,78 @@ class PlannerTests(unittest.TestCase):
             raw = response.read()
             return response.status, json.loads(raw) if "application/json" in response.headers["Content-Type"] else raw
 
+    def test_activity_status_priority(self):
+        project=self.request("/api/projects",{"name":"Activity"})[1]["project"]["id"]
+        parent=self.request("/api/tasks",{"project_id":project,"title":"Parent"})[1]["task"]
+        child=self.request("/api/tasks",{"project_id":project,"parent_id":parent["id"],"title":"Child"})[1]["task"]
+        for task in [parent,child]:
+            nid=task["id"]
+            self.assertEqual((task["status"],task["priority"]),("open","none"))
+            for status in ["locked","update-required","loading","completed","open"]:
+                for priority in ["high","medium","low","none"]:
+                    code,data=self.request(f"/api/tasks/{nid}/edit",{"title":task["title"],"status":status,"priority":priority})
+                    self.assertEqual(code,200)
+                    self.assertEqual((data["task"]["status"],data["task"]["priority"],data["task"]["completed"]),(status,priority,int(status=="completed")))
+            for payload in [{"status":"bad"},{"priority":"bad"},{"status":None},{"priority":True}]:
+                self.assertEqual(self.request(f"/api/tasks/{nid}/edit",{"title":"Invalid",**payload})[0],400)
+            self.assertEqual(self.request(f"/api/tasks/{nid}")[1]["task"]["title"],task["title"])
+            self.request(f"/api/tasks/{nid}/update",{"completed":True})
+            self.assertEqual(self.request(f"/api/tasks/{nid}")[1]["task"]["status"],"completed")
+        app.initialize()
+        self.assertTrue(all(t["status"]=="completed" for t in self.request(f"/api/projects/{project}")[1]["tasks"]))
+        for icon in ["locked","update-required","loading","completed","high-priority","medium-priority","low-priority"]:
+            self.assertEqual(self.request(f"/imgs/{icon}.png")[0],200)
+
+    def test_task_order_persistence_and_boundaries(self):
+        project=self.request("/api/projects",{"name":"Ordering"})[1]["project"]["id"]
+        def add(title,parent=None):
+            return self.request("/api/tasks",{"project_id":project,"parent_id":parent,"title":title})[1]["task"]["id"]
+        a,b,c=[add(title) for title in ["A","B","C"]]
+        x,y=add("X",a),add("Y",a)
+        def roots():
+            return [t["id"] for t in self.request(f"/api/projects/{project}")[1]["tasks"] if t["parent_id"] is None]
+        self.assertEqual(roots(),[c,b,a])
+        self.assertEqual(self.request(f"/api/tasks/{a}/move",{"before_id":c})[0],200)
+        self.assertEqual(roots(),[a,c,b])
+        self.request(f"/api/tasks/{a}/move",{"before_id":None})
+        self.assertEqual(roots(),[c,b,a])
+        self.request(f"/api/tasks/{x}/move",{"before_id":y})
+        app.initialize()
+        self.assertEqual(roots(),[c,b,a])
+        self.assertEqual([t["id"] for t in self.request(f"/api/tasks/{a}")[1]["subtasks"]],[x,y])
+        other=self.request("/api/projects",{"name":"Other"})[1]["project"]["id"]
+        foreign=self.request("/api/tasks",{"project_id":other,"title":"Foreign"})[1]["task"]["id"]
+        for target in [x,foreign,a,True,99999]:
+            self.assertEqual(self.request(f"/api/tasks/{a}/move",{"before_id":target})[0],400)
+        self.assertEqual(self.request(f"/api/tasks/{x}/move",{"before_id":b})[0],400)
+        self.assertEqual(roots(),[c,b,a])
+        self.request(f"/api/tasks/{a}/update",{"completed":True})
+        self.request(f"/api/tasks/{a}/edit",{"title":"Renamed"})
+        self.assertEqual(roots(),[c,b,a])
+        self.assertEqual(self.request(f"/api/tasks/99999/move",{"before_id":None})[0],404)
+
+    def test_note_project_link_and_deletion(self):
+        project=self.request("/api/projects",{"name":"Colored","color":"#123456"})[1]["project"]
+        status,data=self.request("/api/notes",{"date":"2026-10-12","body":"Linked","project_id":project["id"]})
+        self.assertEqual(status,201)
+        note=data["note"]; nid=note["id"]
+        self.assertEqual(note["project"]["color"],"#123456")
+        self.assertEqual(note["project"]["name"],"Colored")
+        self.assertEqual(self.week_notes()[0]["project_id"],project["id"])
+        self.action(nid,"edit",{"date":"2026-10-12","body":"Preserved"})
+        self.assertEqual(self.request(f"/api/notes/{nid}")[1]["note"]["project_id"],project["id"])
+        for invalid in [True,0,"1",99999]:
+            self.assertIn(self.action(nid,"edit",{"date":"2026-10-13","body":"Invalid","project_id":invalid})[0],(400,404))
+        self.assertEqual(self.request(f"/api/notes/{nid}")[1]["note"]["body"],"Preserved")
+        self.action(nid,"edit",{"date":"2026-10-12","body":"Unlinked","project_id":None})
+        self.assertIsNone(self.request(f"/api/notes/{nid}")[1]["note"]["project"])
+        self.action(nid,"edit",{"date":"2026-10-12","body":"Relinked","project_id":project["id"]})
+        self.request(f"/api/projects/{project['id']}/delete",{})
+        saved=self.request(f"/api/notes/{nid}")[1]["note"]
+        self.assertEqual(saved["body"],"Relinked")
+        self.assertIsNone(saved["project"])
+        self.assertEqual(self.request("/imgs/calendar.png")[0],200)
+
     def test_note_tags_lifecycle(self):
         status, data = self.request("/api/notes", {"date":"2026-10-12","body":"Tagged","tags":[" area : personal ","priority:high","area:personal"]})
         self.assertEqual(status,201)

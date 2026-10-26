@@ -89,21 +89,78 @@ TEST_JS = r"""
       assert(edited.phase_name==='Testing','Phase did not save');
       assert(edited.end_date==='2026-10-23','Dates did not save');
       result.checks.push('All editable fields autosave: '+task.title);
+      for (const [status,priority] of [['locked','high'],['update-required','medium'],['loading','low'],['completed','none'],['open','none']]) {
+        form.elements.status.value=status;
+        form.elements.priority.value=priority;
+        form.elements.status.dispatchEvent(new Event('change',{bubbles:true}));
+        await flushTaskSave();
+        const savedActivity=(await request('/api/tasks/'+task.id)).task;
+        assert(savedActivity.status===status&&savedActivity.priority===priority,'Activity menus did not autosave');
+        if(status!=='completed') {
+          const row=document.querySelector('.task-tree[data-task-id="'+task.id+'"] > summary');
+          assert(Boolean(row.querySelector('.status-icon'))===(status!=='open'),'Status icon visibility incorrect');
+          assert(Boolean(row.querySelector('.priority-icon'))===(priority!=='none'),'Priority icon visibility incorrect');
+          if(status!=='open')assert(row.querySelector('.status-icon').nextElementSibling.classList.contains('task-tree-meta'),'Status icon position incorrect');
+          if(priority!=='none')assert(row.querySelector('.task-title-row .priority-icon'),'Priority icon should be beside title');
+        }
+      }
+      result.checks.push('Status/priority menu autosave and row icons: '+task.title);
       const closed=new Promise(resolve=>taskDialog.addEventListener('close',resolve,{once:true}));
       await closeTaskEditor();
       await closed;
     }
 
+    const orderProject=(await workspacePost('/api/projects',{name:'Ordering browser'})).project;
+    const orderA=(await workspacePost('/api/tasks',{project_id:orderProject.id,title:'Order A'})).task;
+    const orderB=(await workspacePost('/api/tasks',{project_id:orderProject.id,title:'Order B'})).task;
+    const orderX=(await workspacePost('/api/tasks',{project_id:orderProject.id,parent_id:orderA.id,title:'Order X'})).task;
+    const orderY=(await workspacePost('/api/tasks',{project_id:orderProject.id,parent_id:orderA.id,title:'Order Y'})).task;
+    workspace.projectId=orderProject.id;workspace.expanded.add(orderA.id);
+    await loadProject();
+    const row=id=>document.querySelector('.task-tree[data-task-id="'+id+'"] > summary');
+    async function dragTask(source,target,after=false) {
+      const transfer=new DataTransfer(),from=row(source),to=row(target);
+      from.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+      const rect=to.getBoundingClientRect(),y=rect.top+rect.height*(after?.75:.25);
+      to.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:transfer,clientY:y}));
+      to.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer,clientY:y}));
+      from.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:transfer}));
+      for(let attempt=0;attempt<100&&taskOrderBusy;attempt++)await pause(50);
+    }
+    assert(!document.querySelector('.task-order'),'Arrow buttons were not removed');
+    await dragTask(orderA.id,orderB.id);
+    assert(workspace.tasks.filter(t=>!t.parent_id)[0].id===orderA.id,'Root drag failed');
+    assert(!taskDialog.open,'Dragging opened task editor');
+    await dragTask(orderY.id,orderX.id,true);
+    await loadProject();
+    assert(workspace.tasks.filter(t=>t.parent_id===orderA.id)[0].id===orderX.id,'Child drag order did not persist');
+    const beforeInvalid=workspace.tasks.map(t=>t.id).join(',');
+    await dragTask(orderX.id,orderB.id);
+    assert(workspace.tasks.map(t=>t.id).join(',')===beforeInvalid,'Cross-parent drop was allowed');
+    assert(workspace.expanded.has(orderA.id),'Dragging lost expanded state');
+    await pause(300);
+    row(orderX.id).querySelector('.task-open-button').click();
+    for(let attempt=0;attempt<100&&taskLoading;attempt++)await pause(50);
+    assert(taskDialog.open,'Ordinary task click no longer opens editor');
+    const orderClosed=new Promise(resolve=>taskDialog.addEventListener('close',resolve,{once:true}));
+    await closeTaskEditor();await orderClosed;
+    result.checks.push('Task/subtask drag/drop, persistent order, parent boundaries, click-to-edit and no arrow controls');
+
+    const coloredProject=(await workspacePost('/api/projects',{name:'Note color browser',color:'#123456'})).project;
     await render();
     const column=document.querySelector('#calendar .day');
     openForm(column,column.dataset.date);
     const noteForm=column.querySelector('.composer form');
+    await fillNoteProjects(noteForm.elements.project_id,coloredProject.id);
     noteForm.elements.body.value='Browser tagged note';
     noteForm.elements.tags.value='area:personal\npriority:high';
     await noteForm.onsubmit(new Event('submit',{cancelable:true}));
     const noteCard=column.querySelector('.note');
     assert(noteCard.textContent.includes('area:personal'),'Note creation tag chip missing');
+    assert(noteCard.classList.contains('project-note'),'Project note color missing');
+    assert(noteCard.style.getPropertyValue('--note-project-color')==='#123456','Wrong project color');
     await openEditor(noteModels.get(Number(noteCard.dataset.id)));
+    assert(document.querySelector('#edit-project').value===String(coloredProject.id),'Project selection did not persist');
     const tagField=document.querySelector('#edit-tags');
     tagField.value=' topic : browser \ntopic:browser';
     tagField.dispatchEvent(new Event('input',{bubbles:true}));
@@ -117,6 +174,12 @@ TEST_JS = r"""
     assert(savedNote.tags.length===0,'Clearing tags did not autosave');
     const noteClosed=new Promise(resolve=>editor.addEventListener('close',resolve,{once:true}));
     await closeEditor();await noteClosed;
+    const picker=document.querySelector('#week-date');
+    picker.value='2027-01-03';
+    picker.dispatchEvent(new Event('change',{bubbles:true}));
+    await pause(500);
+    assert(document.querySelector('#calendar .day').dataset.date==='2026-12-28','Weekend/year-boundary week jump failed');
+    result.checks.push('Project note colors and date picker navigation');
     result.checks.push('Note creation tags, card chips, normalized autosave and tag removal');
 
     const project=(await workspacePost('/api/projects',{name:'Disposable deletion UI'})).project;

@@ -166,7 +166,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         paths = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
                  "/style.css": ("style.css", "text/css"), "/workspace.js": ("workspace.js", "text/javascript")}
-        for icon in ("left-arrow", "right-arrow", "settings", "add", "bin"):
+        for icon in ("left-arrow", "right-arrow", "settings", "add", "bin", "calendar", "project", "gantt", "locked", "update-required", "loading", "completed", "high-priority", "medium-priority", "low-priority"):
             paths[f"/imgs/{icon}.png"] = (f"../imgs/{icon}.png", "image/png")
         if url.path not in paths:
             self.respond(404, {"error": "Not found."})
@@ -238,6 +238,7 @@ class Handler(BaseHTTPRequestHandler):
                 position = db.execute("SELECT COALESCE(MIN(position), 0) - 1 FROM notes WHERE date = ? AND completed = 0", (selected,)).fetchone()[0]
                 cursor = db.execute("INSERT INTO notes(date, body, position) VALUES (?, ?, ?)", (selected, body.strip(), position))
                 project_store.replace_note_tags(db,cursor.lastrowid,tags)
+                project_store.set_note_project(db,cursor.lastrowid,payload.get("project_id"))
                 note = project_store.note_record(db,db.execute("SELECT * FROM notes WHERE id = ?", (cursor.lastrowid,)).fetchone())
             self.respond(201, {"note": note})
         except LookupError as exc:
@@ -336,6 +337,8 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, str) or not body.strip() or len(body) > 10000:
                 raise ValueError("Write a note between 1 and 10,000 characters.")
             tags=project_store.tag_pairs(payload["tags"]) if "tags" in payload else None
+            if "project_id" in payload:
+                project_store.set_note_project(db,note_id,payload["project_id"])
             position = row["position"]
             if target != source:
                 aggregate = "MAX" if row["completed"] else "MIN"
