@@ -499,3 +499,7 @@ The interface uses a business workspace theme: navy navigation, teal action stat
 ### Project page scrolling
 
 On desktop, the project overview and task list occupy the left column; the discussion panel starts beside the overview and fills the available workspace height. Task/subtask rows and comment history scroll independently, while the discussion header and composer remain visible. Long project descriptions also scroll within a bounded overview. On narrow screens the sections stack, with bounded task and comment lists. Task/subtask editor dialogs retain their existing independent scrolling.
+
+### Icon backgrounds
+
+Some files in `imgs/` have a .png extension but contain JPEG or WebP data; renaming a file does not convert it or add transparency. The UI uses `mix-blend-mode: multiply` on raster icons to blend white backgrounds into button, card and navigation surfaces without modifying the original assets. This is a display treatment, not an alpha-channel conversion; light icon colors can also darken. For reusable transparent assets, remove the background in an image editor and export an actual PNG with transparency enabled.

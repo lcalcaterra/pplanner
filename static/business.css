@@ -304,3 +304,23 @@ input[type=checkbox] { accent-color:var(--accent); }
 @media(max-width:600px) {
   #calendar-page, #projects-page, #gantt-page { padding-left:8px; padding-right:8px; }
 }
+
+/* Shared send icon for notes, projects, tasks and subtasks. */
+#send-comment, #project-comment-send {
+  display:inline-flex; align-items:center; justify-content:center; padding:5px;
+}
+#send-comment img, #project-comment-send img {
+  width:18px; height:18px; object-fit:contain; pointer-events:none;
+}
+
+/* Blend white-backed raster icons into their UI surface.
+   Source icons include JPEG/WebP files named .png; preserve the originals. */
+.icon-button img,
+.add-note img,
+.delete-note img,
+.page-nav img,
+.activity-icon,
+#send-comment img,
+#project-comment-send img {
+  mix-blend-mode:multiply;
+}
