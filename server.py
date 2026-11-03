@@ -45,6 +45,8 @@ def initialize():
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         )""")
         columns = {row["name"] for row in db.execute("PRAGMA table_info(notes)")}
+        if "description" not in columns:
+            db.execute("ALTER TABLE notes ADD COLUMN description TEXT NOT NULL DEFAULT ''")
         if "completed" not in columns:
             db.execute("ALTER TABLE notes ADD COLUMN completed INTEGER NOT NULL DEFAULT 0")
         if "position" not in columns:
@@ -166,7 +168,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         paths = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
                  "/style.css": ("style.css", "text/css"), "/business.css": ("business.css", "text/css"), "/workspace.js": ("workspace.js", "text/javascript")}
-        for icon in ("left-arrow", "right-arrow", "settings", "add", "bin", "calendar", "project", "gantt", "locked", "update-required", "loading", "completed", "high-priority", "medium-priority", "low-priority", "send"):
+        for icon in ("left-arrow", "right-arrow", "settings", "add", "bin", "calendar", "project", "gantt", "locked", "update-required", "loading", "completed", "high-priority", "medium-priority", "low-priority", "send", "logo"):
             paths[f"/imgs/{icon}.png"] = (f"../imgs/{icon}.png", "image/png")
         if url.path not in paths:
             self.respond(404, {"error": "Not found."})
@@ -229,14 +231,15 @@ class Handler(BaseHTTPRequestHandler):
             selected = valid_date(payload.get("date"))
             if date.fromisoformat(selected).weekday() > 4:
                 raise ValueError("Choose a weekday, Monday to Friday.")
-            body = payload.get("body")
+            body = payload.get("title",payload.get("body"))
             if not isinstance(body, str) or not body.strip() or len(body) > 10000:
-                raise ValueError("Write a note between 1 and 10,000 characters.")
+                raise ValueError("Write a note title between 1 and 10,000 characters.")
+            description=project_store.text(payload.get("description",""),"Description")
             tags=project_store.tag_pairs(payload.get("tags",[]))
             with connect() as db:
                 db.execute("BEGIN IMMEDIATE")
                 position = db.execute("SELECT COALESCE(MIN(position), 0) - 1 FROM notes WHERE date = ? AND completed = 0", (selected,)).fetchone()[0]
-                cursor = db.execute("INSERT INTO notes(date, body, position) VALUES (?, ?, ?)", (selected, body.strip(), position))
+                cursor = db.execute("INSERT INTO notes(date, body, position, description) VALUES (?, ?, ?, ?)", (selected, body.strip(), position,description))
                 project_store.replace_note_tags(db,cursor.lastrowid,tags)
                 project_store.set_note_project(db,cursor.lastrowid,payload.get("project_id"))
                 note = project_store.note_record(db,db.execute("SELECT * FROM notes WHERE id = ?", (cursor.lastrowid,)).fetchone())
@@ -319,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(200, result)
             return
         if action == "comments":
-            body = payload.get("body")
+            body = payload.get("title",payload.get("body"))
             if not isinstance(body, str) or not body.strip() or len(body) > 10000:
                 raise ValueError("Write a comment between 1 and 10,000 characters.")
             cursor = db.execute("INSERT INTO comments(note_id, body) VALUES (?, ?)", (note_id, body.strip()))
@@ -333,9 +336,10 @@ class Handler(BaseHTTPRequestHandler):
             target = valid_date(payload.get("date"))
             if date.fromisoformat(target).weekday() > 4:
                 raise ValueError("Choose a weekday, Monday to Friday.")
-            body = payload.get("body")
+            body = payload.get("title",payload.get("body"))
             if not isinstance(body, str) or not body.strip() or len(body) > 10000:
-                raise ValueError("Write a note between 1 and 10,000 characters.")
+                raise ValueError("Write a note title between 1 and 10,000 characters.")
+            description=project_store.text(payload.get("description",row["description"]),"Description")
             tags=project_store.tag_pairs(payload["tags"]) if "tags" in payload else None
             if "project_id" in payload:
                 project_store.set_note_project(db,note_id,payload["project_id"])
@@ -344,7 +348,7 @@ class Handler(BaseHTTPRequestHandler):
                 aggregate = "MAX" if row["completed"] else "MIN"
                 step = 1 if row["completed"] else -1
                 position = db.execute(f"SELECT COALESCE({aggregate}(position), 0) FROM notes WHERE date = ? AND completed = ?", (target, row["completed"])).fetchone()[0] + step
-            db.execute("UPDATE notes SET date = ?, body = ?, position = ? WHERE id = ?", (target, body.strip(), position, note_id))
+            db.execute("UPDATE notes SET date = ?, body = ?, position = ?, description = ? WHERE id = ?", (target, body.strip(), position,description, note_id))
             if tags is not None:
                 project_store.replace_note_tags(db,note_id,tags)
         notes = [project_store.note_record(db,n) for n in db.execute("SELECT * FROM notes WHERE date IN (?, ?) ORDER BY date, completed, position, id DESC", (source, target))]

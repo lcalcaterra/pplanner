@@ -45,6 +45,21 @@ class PlannerTests(unittest.TestCase):
             raw = response.read()
             return response.status, json.loads(raw) if "application/json" in response.headers["Content-Type"] else raw
 
+    def test_note_title_description(self):
+        code,data=self.request("/api/notes",{"date":"2026-10-12","title":"Note title","description":"Details"})
+        self.assertEqual(code,201)
+        nid=data["note"]["id"]
+        self.assertEqual((data["note"]["title"],data["note"]["body"],data["note"]["description"]),("Note title","Note title","Details"))
+        self.action(nid,"edit",{"date":"2026-10-12","body":"Legacy title edit"})
+        self.assertEqual(self.request(f"/api/notes/{nid}")[1]["note"]["description"],"Details")
+        self.action(nid,"edit",{"date":"2026-10-12","title":"New title","description":""})
+        app.initialize()
+        note=self.request(f"/api/notes/{nid}")[1]["note"]
+        self.assertEqual((note["title"],note["description"]),("New title",""))
+        for payload in [{"title":""},{"description":123},{"description":"x"*10001}]:
+            self.assertEqual(self.action(nid,"edit",{"date":"2026-10-12","title":"New title",**payload})[0],400)
+        self.assertEqual(self.request(f"/api/notes/{nid}")[1]["note"]["title"],"New title")
+
     def test_activity_status_priority(self):
         project=self.request("/api/projects",{"name":"Activity"})[1]["project"]["id"]
         parent=self.request("/api/tasks",{"project_id":project,"title":"Parent"})[1]["task"]

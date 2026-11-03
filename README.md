@@ -494,7 +494,7 @@ Completed status follows the existing Show completed filter. Other statuses rema
 
 ### Visual design
 
-The interface uses a business workspace theme: navy navigation, teal action states, neutral calendar lanes, clear sans-serif typography, and consistent form/card styling. Project-colored notes, status and priority PNGs retain their meaning. The presentation layer is in `static/business.css`, loaded after the structural `style.css`; existing workflows, autosave and drag/drop behavior are unchanged. All fonts and assets remain local, with responsive layouts and visible keyboard focus.
+The interface uses a business workspace theme: navy navigation, logo-inspired azure action states, neutral calendar lanes, clear sans-serif typography, and consistent form/card styling. Project-colored notes, status and priority PNGs retain their meaning. The presentation layer is in `static/business.css`, loaded after the structural `style.css`; existing workflows, autosave and drag/drop behavior are unchanged. All fonts and assets remain local, with responsive layouts and visible keyboard focus.
 
 ### Project page scrolling
 
@@ -503,3 +503,15 @@ On desktop, the project overview and task list occupy the left column; the discu
 ### Icon backgrounds
 
 Some files in `imgs/` have a .png extension but contain JPEG or WebP data; renaming a file does not convert it or add transparency. The UI uses `mix-blend-mode: multiply` on raster icons to blend white backgrounds into button, card and navigation surfaces without modifying the original assets. This is a display treatment, not an alpha-channel conversion; light icon colors can also darken. For reusable transparent assets, remove the background in an image editor and export an actual PNG with transparency enabled.
+
+### Note titles and descriptions
+
+Notes have a required Title and an optional Description, both autosaved in the editor and available when creating a note. Calendar cards show the title in bold; descriptions are visible and editable only in the note editor. Existing note text is preserved in full as the title, with an initially empty description. The additive database migration runs on server restart and retains comments, project links, tags, ordering and completion.
+
+The notes API accepts `title` (or the backward-compatible `body`) and `description`, each up to 10,000 characters. Responses include both `title` and the legacy `body` alias. Omitted descriptions on edits preserve existing descriptions; an empty string clears them.
+
+### Default project
+
+Projects automatically opens the last successfully viewed project, remembered locally in this browser across refreshes and restarts. If that project was deleted or no selection has been remembered, the newest available project opens instead. With no projects, the existing create-project empty state appears. Browser storage is optional: if disabled, project selection still works during the session.
+
+The supplied blue P logo guides the brand palette: azure gradients on primary actions and selected states, soft blue-gray surfaces, and rounded cards. The header logo is displayed larger (64px image box on desktop, 52px on mobile) to accommodate the artwork's internal transparent padding. Semantic status colors and individual project colors remain independent of the brand palette.

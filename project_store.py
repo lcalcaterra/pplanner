@@ -124,7 +124,7 @@ def read(db, path, query):
         return {"task":task,
                 "comments":discussion(db,task["project_id"],item_id),
                 "subtasks":[metadata(db,dict(r),"task") for r in db.execute("SELECT * FROM project_tasks WHERE parent_id=? ORDER BY position,id DESC",(item_id,))],
-                "notes":[dict(r) for r in db.execute("SELECT n.* FROM notes n JOIN task_notes l ON l.note_id=n.id WHERE l.task_id=? ORDER BY n.date DESC,n.id DESC",(item_id,))],
+                "notes":[note_record(db,r) for r in db.execute("SELECT n.* FROM notes n JOIN task_notes l ON l.note_id=n.id WHERE l.task_id=? ORDER BY n.date DESC,n.id DESC",(item_id,))],
                 "checkpoints":[dict(r) for r in db.execute("SELECT * FROM task_checkpoints WHERE task_id=? ORDER BY id",(item_id,))]}
     raise LookupError("Not found.")
 
@@ -404,6 +404,7 @@ CREATE TABLE IF NOT EXISTS note_tags (
 
 def note_record(db,record):
     note=dict(record)
+    note["title"]=note["body"]
     note["tags"]=[item["name"]+":"+item["value"] for item in db.execute("SELECT name,value FROM note_tags WHERE note_id=? ORDER BY name,value",(note["id"],))]
     project=db.execute("SELECT p.id,p.name,p.color FROM projects p JOIN note_projects l ON l.project_id=p.id WHERE l.note_id=?",(note["id"],)).fetchone()
     note["project"]=dict(project) if project else None

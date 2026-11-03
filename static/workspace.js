@@ -25,12 +25,36 @@ function populateProjects(select,all) {
   workspace.projects.forEach(project=>select.add(new Option(project.name,String(project.id))));
   select.value=previous;
 }
+const lastProjectKey='pplanner.lastProjectId';
+function rememberedProjectId() {
+  try { return Number(localStorage.getItem(lastProjectKey))||null; }
+  catch { return null; }
+}
+function rememberProject(id) {
+  try {
+    if(id)localStorage.setItem(lastProjectKey,String(id));
+    else localStorage.removeItem(lastProjectKey);
+  } catch { /* Project navigation also works with browser storage disabled. */ }
+}
 async function refreshProjectList() {
   const data=await request('/api/projects');
   workspace.projects=data.projects;
+  const available=id=>workspace.projects.some(project=>project.id===id);
+  const previous=workspace.projectId;
+  const remembered=rememberedProjectId();
+  workspace.projectId=available(previous)?previous:available(remembered)?remembered:workspace.projects[0]?.id??null;
+  if(previous!==workspace.projectId) {
+    workspace.taskId=null;
+    workspace.expanded.clear();
+  }
+  if(!workspace.projects.length)rememberProject(null);
   populateProjects($('#project-select'),false);
   populateProjects($('#gantt-project-select'),true);
-  if (workspace.projectId) $('#project-select').value=String(workspace.projectId);
+  if (workspace.projectId) {
+    const select=$('#project-select');
+    select.querySelector('option[value=""]')?.remove();
+    select.value=String(workspace.projectId);
+  }
 }
 
 const taskDialog=$('#task-editor-dialog');
@@ -390,7 +414,7 @@ function paintTasks() {
     expander.type='button';expander.setAttribute('aria-label','Expand or collapse subtasks');
     expander.setAttribute('aria-expanded',String(tree.open));
     expander.onclick=event=>{event.preventDefault();event.stopPropagation();tree.open=!tree.open;};
-    summary.append(expander,element('span',task.completed?'\u2713':'\u25cb','task-marker'),content);
+    summary.append(expander,content);
     const children=workspace.tasks.filter(child=>child.parent_id===task.id);
     const statusIcon=activityIcon(task.status||'open','status');
     if(statusIcon)summary.append(statusIcon);
@@ -479,6 +503,7 @@ async function loadProject() {
     const data=await request('/api/projects/'+workspace.projectId);
     if(ticket!==workspace.projectLoad) return;
     workspace.project=data.project; workspace.tasks=data.tasks;
+    rememberProject(data.project.id);
     const overview=$('#project-overview');
     const button=element('button',data.project.name,'project-overview-name'); button.type='button';
     button.onclick=()=>{workspace.taskId=null; $('#task-detail').hidden=true; markTaskSelection(); setDiscussion(workspace.projectId,null);};

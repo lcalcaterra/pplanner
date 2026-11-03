@@ -117,6 +117,16 @@ TEST_JS = r"""
     const orderY=(await workspacePost('/api/tasks',{project_id:orderProject.id,parent_id:orderA.id,title:'Order Y'})).task;
     workspace.projectId=orderProject.id;workspace.expanded.add(orderA.id);
     await loadProject();
+    assert(localStorage.getItem(lastProjectKey)===String(orderProject.id),'Last viewed project was not remembered');
+    workspace.projectId=null;workspace.taskId=null;
+    await refreshProjectList();await loadProject();
+    assert(workspace.projectId===orderProject.id,'Remembered project was not restored');
+    assert(document.querySelector('#project-select').value===String(orderProject.id),'Restored project picker mismatch');
+    workspace.projectId=null;localStorage.setItem(lastProjectKey,'99999999');
+    await refreshProjectList();await loadProject();
+    assert(workspace.projectId===workspace.projects[0].id,'Missing remembered project should fall back to newest');
+    result.checks.push('Last project persistence, selection restoration and deleted-project fallback');
+    workspace.expanded.add(orderA.id);paintTasks();
     const row=id=>document.querySelector('.task-tree[data-task-id="'+id+'"] > summary');
     async function dragTask(source,target,after=false) {
       const transfer=new DataTransfer(),from=row(source),to=row(target);
@@ -180,6 +190,7 @@ TEST_JS = r"""
     const noteForm=column.querySelector('.composer form');
     await fillNoteProjects(noteForm.elements.project_id,coloredProject.id);
     noteForm.elements.body.value='Browser tagged note';
+    noteForm.elements.description.value='Initial description';
     noteForm.elements.tags.value='area:personal\npriority:high';
     await noteForm.onsubmit(new Event('submit',{cancelable:true}));
     const noteCard=column.querySelector('.note');
@@ -188,6 +199,16 @@ TEST_JS = r"""
     assert(noteCard.style.getPropertyValue('--note-project-color')==='#123456','Wrong project color');
     await openEditor(noteModels.get(Number(noteCard.dataset.id)));
     assert(document.querySelector('#edit-project').value===String(coloredProject.id),'Project selection did not persist');
+    assert(document.querySelector('#edit-description').value==='Initial description','Description did not persist on creation');
+    document.querySelector('#edit-body').value='Updated note title';
+    document.querySelector('#edit-description').value='Updated note description';
+    document.querySelector('#edit-description').dispatchEvent(new Event('input',{bubbles:true}));
+    await flushNoteAutosave();
+    const noteFields=(await request('/api/notes/'+editorNote.id)).note;
+    assert(noteFields.title==='Updated note title'&&noteFields.description==='Updated note description','Separate note fields did not autosave');
+    assert(!document.querySelector('.note[data-id="'+editorNote.id+'"] .note-description'),'Description should be hidden on calendar cards');
+    assert(document.querySelector('#edit-description').value==='Updated note description','Description should remain available in the editor');
+    result.checks.push('Separate note title/description creation, autosave and description only in editor');
     const tagField=document.querySelector('#edit-tags');
     tagField.value=' topic : browser \ntopic:browser';
     tagField.dispatchEvent(new Event('input',{bubbles:true}));
