@@ -7,6 +7,7 @@ import sys
 import time
 import sqlite3
 import project_store
+import backup_store
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,7 +21,7 @@ MAX_BODY = 65536
 def backend_digest():
     """Fingerprint code loaded by this process; static assets are served fresh."""
     digest=hashlib.sha256()
-    for name in ("server.py","project_store.py"):
+    for name in ("server.py","project_store.py","backup_store.py"):
         digest.update((ROOT/name).read_bytes())
     return digest.hexdigest()
 
@@ -121,6 +122,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlsplit(self.path)
+        if url.path == "/api/data/export":
+            try:
+                with connect() as db:
+                    db.execute("BEGIN")
+                    data=backup_store.encode(backup_store.snapshot(db))
+                self.send_response(200)
+                self.send_header("Content-Type","application/json; charset=utf-8")
+                self.send_header("Content-Disposition",'attachment; filename="pplanner-'+datetime.now().strftime("%Y%m%d-%H%M%S")+'.pplanner"')
+                self.send_header("Content-Length",str(len(data)))
+                self.send_header("Cache-Control","no-store")
+                self.end_headers()
+                self.wfile.write(data)
+            except sqlite3.Error:
+                self.respond(503,{"error":"Could not export data. Please retry."})
+            return
         if url.path.startswith("/api/"):
             try:
                 rollover_week()
@@ -166,8 +182,8 @@ class Handler(BaseHTTPRequestHandler):
                 comments = [dict(c) for c in db.execute("SELECT * FROM comments WHERE note_id = ? ORDER BY id", (note["id"],))]
             self.respond(200, {"note": project_store.note_record(db,note), "comments": comments})
             return
-        paths = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
-                 "/style.css": ("style.css", "text/css"), "/business.css": ("business.css", "text/css"), "/workspace.js": ("workspace.js", "text/javascript")}
+        paths = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/comments.js": ("comments.js", "text/javascript"),
+                 "/style.css": ("style.css", "text/css"), "/business.css": ("business.css", "text/css"), "/backup.js": ("backup.js", "text/javascript"), "/restore.js": ("restore.js", "text/javascript"), "/workspace.js": ("workspace.js", "text/javascript")}
         for icon in ("left-arrow", "right-arrow", "settings", "add", "bin", "calendar", "project", "gantt", "locked", "update-required", "loading", "completed", "high-priority", "medium-priority", "low-priority", "send", "logo"):
             paths[f"/imgs/{icon}.png"] = (f"../imgs/{icon}.png", "image/png")
         if url.path not in paths:
@@ -189,7 +205,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         action_path = self.path.startswith("/api/notes/")
         workspace_path = self.path.startswith(("/api/projects", "/api/tasks"))
-        if self.path != "/api/notes" and not action_path and not workspace_path:
+        import_path=self.path == "/api/data/import"
+        if self.path != "/api/notes" and not action_path and not workspace_path and not import_path:
             self.respond(404, {"error": "Not found."})
             return
         # Reject browser cross-origin writes; this service intentionally has no CORS.
@@ -209,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= MAX_BODY:
+            if not 0 < length <= (backup_store.MAX_BYTES if import_path else MAX_BODY):
                 self.respond(413, {"error": "Request is too large or empty."})
                 return
             if self.headers.get_content_type() != "application/json":
@@ -218,6 +235,13 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length))
             if not isinstance(payload, dict):
                 raise ValueError("Expected a JSON object.")
+            if import_path:
+                if payload.get("confirm_replace") is not True:
+                    raise ValueError("Confirm replacement before importing data.")
+                with connect() as db:
+                    filename=backup_store.restore(db,payload.get("backup"),DB.parent/"backups")
+                self.respond(200,{"imported":True,"recovery_backup":filename})
+                return
             rollover_week()
             if workspace_path:
                 with connect() as db:
@@ -248,8 +272,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(404, {"error": str(exc)})
         except (ValueError, TypeError, UnicodeDecodeError) as exc:
             self.respond(400, {"error": str(exc)})
-        except sqlite3.Error:
-            self.respond(503, {"error": "Could not save your note. Please retry."})
+        except (sqlite3.Error,OSError):
+            self.respond(503, {"error": "Could not save data. No replacement was committed. Please retry."})
 
     def update_note(self, payload):
         parts = self.path.strip("/").split("/")

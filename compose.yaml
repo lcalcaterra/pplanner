@@ -1,0 +1,31 @@
+name: pplanner
+
+services:
+  pplanner:
+    build: .
+    image: pplanner:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PPLANNER_PORT:-8000}:8000"
+    environment:
+      PPLANNER_DB: /data/planner.sqlite3
+      PPLANNER_TIMEZONE: ${PPLANNER_TIMEZONE:-Europe/Rome}
+    volumes:
+      - pplanner-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  pplanner-data:
+    name: pplanner-data

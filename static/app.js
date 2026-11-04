@@ -340,8 +340,8 @@ function commentCard(comment) {
   menu.addEventListener('keydown', event => {
     if (event.key === 'Escape' && menu.open) { event.preventDefault(); event.stopPropagation(); menu.open = false; toggle.focus(); }
   });
-  const body = document.createElement('p');
-  body.textContent = comment.body;
+  const body = document.createElement('div');
+  renderFormattedComment(body,comment.body);
   edit.onclick = () => {
     if (mutationBusy || $('.comment-edit',article)) return;
     menu.open = false;
@@ -370,6 +370,7 @@ function commentCard(comment) {
     body.hidden = true;
     menu.hidden = true;
     article.append(form);
+    enhanceCommentInput(input);
     input.focus();
     cancel.onclick = () => { form.remove(); body.hidden = false; menu.hidden = false; toggle.focus(); };
     form.onsubmit = async event => {
@@ -488,6 +489,7 @@ function noteDraftDirty() {
   return editorNote && (($('#edit-body').value !== editorNote.body || $('#edit-description').value !== (editorNote.description || '')) || $('#edit-date').value !== editorNote.date || noteTagsDirty() || noteProjectDirty());
 }
 function updateCommentSend() {
+  refreshCommentEditor(document.querySelector("#comment-body"));
   $('#send-comment').disabled = !editorNote || editorLoading || mutationBusy || !$('#comment-body').value.trim();
 }
 function scheduleNoteAutosave() {

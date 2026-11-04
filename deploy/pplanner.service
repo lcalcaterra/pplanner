@@ -1,0 +1,27 @@
+[Unit]
+Description=Pplanner private local planner
+After=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+User=pplanner
+WorkingDirectory=/opt/pplanner
+ExecStart=/usr/bin/python3 /opt/pplanner/server.py --host 127.0.0.1 --port 8000
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=PPLANNER_DB=/var/lib/pplanner/planner.sqlite3
+Environment=PPLANNER_TIMEZONE=Europe/Rome
+StateDirectory=pplanner
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

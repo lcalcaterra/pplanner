@@ -1,0 +1,11 @@
+# Only application assets enter the build context. Never include local data.
+*
+!Dockerfile
+!server.py
+!project_store.py
+!backup_store.py
+!static/
+!static/**
+!imgs/
+!imgs/**
+!LICENSE

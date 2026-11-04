@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Your private space for weekly notes."><title>Pplanner - Your week, thoughtfully planned</title><link rel="icon" type="image/png" href="/imgs/logo.png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/business.css"><script src="/app.js" defer></script><script src="/workspace.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Your private space for weekly notes."><title>Pplanner - Your week, thoughtfully planned</title><link rel="icon" type="image/png" href="/imgs/logo.png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/business.css"><script src="/comments.js" defer></script><script src="/app.js" defer></script><script src="/workspace.js" defer></script><script src="/backup.js" defer></script><script src="/restore.js" defer></script></head>
 <body>
-<header class="topbar"><a class="brand" href="/" aria-label="Pplanner home"><img class="brand-logo" src="/imgs/logo.png" alt="" aria-hidden="true" width="40" height="40"><span>pplanner<span class="brand-caption">YOUR PRIVATE WORKSPACE</span></span></a><div class="top-actions"><span class="private"><span></span> Private workspace</span><button class="settings icon-button" disabled aria-label="Settings (coming soon)" title="Settings coming soon"><img src="/imgs/settings.png" alt="" aria-hidden="true" width="20" height="20"></button></div></header>
+<header class="topbar"><a class="brand" href="/" aria-label="Pplanner home"><img class="brand-logo" src="/imgs/logo.png" alt="" aria-hidden="true" width="40" height="40"><span>pplanner<span class="brand-caption">YOUR PRIVATE WORKSPACE</span></span></a><div class="top-actions"><span class="private"><span></span> Private workspace</span><details id="settings-menu" class="settings-menu"><summary class="settings icon-button" aria-label="Settings" title="Settings"><img src="/imgs/settings.png" alt="" aria-hidden="true" width="20" height="20"></summary><div class="settings-options"><button id="export-data" type="button">Export data</button><button id="import-data" type="button">Import data</button><button id="restore-projects" type="button">Restore projects</button><p id="backup-status" role="status" aria-live="polite"></p></div></details></div></header>
 
 <nav class="page-nav" aria-label="Main navigation">
   <a href="#calendar" data-page="calendar" aria-current="page"><img src="/imgs/calendar.png" alt="" width="20" height="20"> Calendar</a>
@@ -36,6 +36,12 @@
 </div>
 </main>
 
+<main id="restore-projects-page" class="workspace-page" hidden>
+<section class="workspace-heading"><div><div class="eyebrow">PROJECT HISTORY</div><h1>Restore projects</h1><p>Bring a completed project back into your workspace as Active.</p></div><a class="today-button restore-back" href="#projects">Back to Projects</a></section>
+<p id="restore-status" class="workspace-status" role="status" aria-live="polite"></p>
+<form id="restore-project-form"><fieldset class="restore-project-fieldset"><legend>Choose a completed project</legend><div id="restore-project-list"></div></fieldset><div class="restore-project-actions"><button id="restore-project-submit" class="insert" type="submit" disabled>Restore as Active</button></div></form>
+</main>
+
 <main id="gantt-page" class="workspace-page" hidden>
   <section class="workspace-heading"><div><div class="eyebrow">PROJECT TIMELINE</div><h1>Gantt</h1><p>Track schedules and milestones across your projects.</p></div><label class="project-picker">Project<select id="gantt-project-select"><option value="">All projects</option></select></label></section>
   <p id="gantt-status" class="workspace-status" role="status" aria-live="polite"></p>
@@ -62,4 +68,17 @@
 <aside class="comment-panel" aria-labelledby="comments-title"><h3 id="comments-title">Comments</h3><div id="comment-history" role="log" aria-label="Comment history"></div><form id="comment-form"><label for="comment-body">Add a comment</label><div class="comment-composer"><textarea id="comment-body" name="body" placeholder="Leave a thought..." maxlength="10000" aria-describedby="comment-keyboard-hint" required></textarea><button id="send-comment" type="submit" aria-label="Send comment" title="Send comment (Enter)" disabled><img src="/imgs/send.png" alt="" aria-hidden="true" width="18" height="18" draggable="false"></button></div><span id="comment-keyboard-hint" class="comment-keyboard-hint">Enter to send, Shift+Enter for a new line</span></form></aside></div>
 </dialog>
 
+<dialog id="import-dialog" aria-labelledby="import-title">
+<header class="workspace-create-header"><h2 id="import-title">Import data</h2><button id="import-close" class="icon-button" type="button" aria-label="Close import">&times;</button></header>
+<p class="import-intro">Restore a Pplanner export. This replaces all current planner data, including projects, notes, tasks and comments.</p>
+<form id="import-form">
+<label id="import-dropzone" for="import-file" tabindex="0"><strong>Drop your Pplanner backup here</strong><span>or click to choose a file</span><small>.pplanner or .json ? up to 64 MB</small></label>
+<input id="import-file" type="file" accept=".pplanner,.json,application/json" hidden>
+<p id="import-file-info" role="status"></p>
+<label class="import-confirm"><input id="import-confirm" type="checkbox" required> I understand that importing replaces all my current data.</label>
+<p class="import-recovery">A recovery backup of your current data will be saved automatically before replacement.</p>
+<p id="import-status" role="status" aria-live="polite"></p>
+<div class="import-actions"><button id="import-cancel" type="button" class="cancel">Cancel</button><button id="import-submit" class="insert" type="submit" disabled>Replace data</button></div>
+</form>
+</dialog>
 </body></html>

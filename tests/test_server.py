@@ -45,6 +45,109 @@ class PlannerTests(unittest.TestCase):
             raw = response.read()
             return response.status, json.loads(raw) if "application/json" in response.headers["Content-Type"] else raw
 
+    def test_project_completion_and_restore_preserve_related_data(self):
+        project=self.request("/api/projects",{"name":"History","tags":["area:archive"]})[1]["project"]["id"]
+        task=self.request("/api/tasks",{"project_id":project,"title":"Keep task","priority":"high"})[1]["task"]["id"]
+        self.request(f"/api/projects/{project}/comments",{"body":"Keep history"})
+        before=self.request(f"/api/projects/{project}")[1]
+        self.assertEqual(self.request(f"/api/projects/{project}/status",{"status":"completed"})[0],200)
+        self.assertEqual(self.request(f"/api/projects/{project}/status",{"status":"active"})[0],200)
+        after=self.request(f"/api/projects/{project}")[1]
+        self.assertEqual(after,before)
+        self.assertEqual(after["tasks"][0]["id"],task)
+        self.assertEqual(self.request("/restore.js")[0],200)
+
+    def backup_file(self):
+        status,data=self.request("/api/data/export")
+        self.assertEqual(status,200)
+        return data
+
+    def restore_file(self,backup,confirm=True):
+        return self.request("/api/data/import",{"confirm_replace":confirm,"backup":backup})
+
+    def test_backup_complete_roundtrip_and_recovery(self):
+        project=self.request("/api/projects",{"name":"Backup project","tags":["area:test"],"color":"#123456"})[1]["project"]["id"]
+        task=self.request("/api/tasks",{"project_id":project,"title":"Task","phase":"Design","tags":["owner:me"],"start_date":"2026-10-12","end_date":"2026-10-16","status":"loading","priority":"high"})[1]["task"]["id"]
+        child=self.request("/api/tasks",{"project_id":project,"parent_id":task,"title":"Child"})[1]["task"]["id"]
+        note=self.request("/api/notes",{"date":"2026-10-12","title":"Note","description":"Details","tags":["topic:test"],"project_id":project})[1]["note"]["id"]
+        self.action(note,"comments",{"body":"Note history"})
+        self.request(f"/api/tasks/{task}/notes",{"note_id":note})
+        self.request(f"/api/tasks/{task}/checkpoints",{"title":"Checkpoint"})
+        self.request(f"/api/projects/{project}/comments",{"body":"Project history"})
+        self.request(f"/api/projects/{project}/comments",{"task_id":child,"body":"Subtask history"})
+        self.request(f"/api/tasks/{child}/move",{"before_id":None})
+        exported=self.backup_file()
+        self.assertEqual(exported["format"],"pplanner-backup")
+        self.assertTrue(all(exported["tables"][name] for name in ["notes","comments","projects","project_tasks","project_phases","task_notes","task_checkpoints","project_tags","task_tags","project_comments","note_tags","note_projects","app_state","sqlite_sequence"]))
+        extra=self.add("Added after export")
+        before=self.backup_file()
+        status,result=self.restore_file(exported)
+        self.assertEqual(status,200,result)
+        self.assertTrue(result["imported"])
+        self.assertEqual(self.backup_file()["tables"],exported["tables"])
+        recovery=app.DB.parent/"backups"/result["recovery_backup"]
+        self.assertEqual(json.loads(recovery.read_text())["tables"],before["tables"])
+        self.assertEqual(self.request(f"/api/notes/{extra}")[0],404)
+        self.assertEqual(self.request(f"/api/tasks/{child}")[1]["task"]["parent_id"],task)
+        self.assertEqual(self.restore_file(json.loads(recovery.read_text()))[0],200)
+        self.assertEqual(self.request(f"/api/notes/{extra}")[0],200)
+
+    def test_backup_rejects_invalid_without_changes(self):
+        import copy
+        self.add("Keep this")
+        original=self.backup_file()
+        invalid=[]
+        for change in ["format","version","table","column","link","type","date"]:
+            item=copy.deepcopy(original)
+            if change=="format":item["format"]="other"
+            if change=="version":item["version"]=2
+            if change=="table":del item["tables"]["projects"]
+            if change=="column":item["tables"]["notes"][0]["sql"]="DROP TABLE notes"
+            if change=="link":item["tables"]["comments"]=[{"id":1,"note_id":9999,"body":"Orphan","created_at":"2026-10-12T10:00:00Z"}]
+            if change=="type":item["tables"]["notes"][0]["id"]=True
+            if change=="date":item["tables"]["notes"][0]["date"]="invalid"
+            invalid.append(item)
+        for item in invalid:
+            self.assertEqual(self.restore_file(item)[0],400)
+            self.assertEqual(self.backup_file()["tables"],original["tables"])
+        self.assertEqual(self.restore_file(original,False)[0],400)
+        self.assertFalse((app.DB.parent/"backups").exists())
+
+    def test_backup_replace_rolls_back_on_storage_error(self):
+        self.add("Original")
+        exported=self.backup_file()
+        self.add("Keep newer data")
+        before=self.backup_file()
+        original_insert=app.backup_store.insert_rows
+        calls=0
+        def fail_live(db,data):
+            nonlocal calls
+            calls+=1
+            if calls==2:
+                db.execute("DELETE FROM notes")
+                raise app.sqlite3.OperationalError("Simulated write failure")
+            original_insert(db,data)
+        with patch.object(app.backup_store,"insert_rows",side_effect=fail_live):
+            self.assertEqual(self.restore_file(exported)[0],503)
+        self.assertEqual(self.backup_file()["tables"],before["tables"])
+
+    def test_backup_recovery_write_failure_prevents_replacement(self):
+        self.add("Original")
+        exported=self.backup_file()
+        self.add("Keep newer")
+        before=self.backup_file()
+        with patch.object(app.backup_store.os,"fsync",side_effect=OSError("Disk full")):
+            self.assertEqual(self.restore_file(exported)[0],503)
+        self.assertEqual(self.backup_file()["tables"],before["tables"])
+
+    def test_backup_empty_and_cross_origin(self):
+        exported=self.backup_file()
+        self.assertEqual(self.restore_file(exported)[0],200)
+        self.assertEqual(self.request("/api/data/import",{"confirm_replace":True,"backup":exported},Origin="https://example.com")[0],403)
+        with urlopen(self.url+"/api/data/export") as response:
+            self.assertIn("attachment",response.headers["Content-Disposition"])
+            self.assertIn(".pplanner",response.headers["Content-Disposition"])
+
     def test_note_title_description(self):
         code,data=self.request("/api/notes",{"date":"2026-10-12","title":"Note title","description":"Details"})
         self.assertEqual(code,201)

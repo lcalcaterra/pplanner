@@ -220,6 +220,35 @@ TEST_JS = r"""
     await flushNoteAutosave();
     savedNote=(await request('/api/notes/'+editorNote.id)).note;
     assert(savedNote.tags.length===0,'Clearing tags did not autosave');
+    const commentInput=document.querySelector('#comment-body');
+    commentInput.value='Important';
+    commentInput.dispatchEvent(new Event('input',{bubbles:true}));
+    commentInput.setSelectionRange(0,commentInput.value.length);
+    document.querySelector('#comment-form [data-format="bold"]').click();
+    assert(commentInput.value==='**Important**','Bold toolbar did not format selection');
+    document.querySelector('#comment-form .comment-preview-toggle').click();
+    assert(document.querySelector('#comment-form .comment-format-preview strong')?.textContent==='Important','Formatted preview missing');
+    document.querySelector('#comment-form .comment-preview-toggle').click();
+    const richSource='**Important** *italic* ++underline++ ~~removed~~ ==highlight==\n\n- first\n- second\n\n> quoted\n\n\x60code\x60 [Docs](https://example.com) <img src=x onerror=alert(1)>';
+    commentInput.value=richSource;commentInput.dispatchEvent(new Event('input',{bubbles:true}));
+    await document.querySelector('#comment-form').onsubmit(new Event('submit',{cancelable:true}));
+    const savedRich=(await request('/api/notes/'+editorNote.id)).comments.at(-1);
+    assert(savedRich.body===richSource,'Formatting source was not persisted');
+    const richCard=[...document.querySelectorAll('#comment-history .comment')].at(-1);
+    assert(richCard.querySelector('strong')&&richCard.querySelector('em')&&richCard.querySelector('u')&&richCard.querySelector('s')&&richCard.querySelector('mark'),'Inline comment formatting missing');
+    assert(richCard.querySelectorAll('ul li').length===2&&richCard.querySelector('blockquote')&&richCard.querySelector('code'),'Block comment formatting missing');
+    assert(!richCard.querySelector('img'),'Comment HTML was executed or injected');
+    richCard.querySelector('.comment-menu-actions button').click();
+    assert(richCard.querySelector('.comment-edit .comment-format-toolbar'),'Comment edit formatting toolbar missing');
+    const editRich=richCard.querySelector('.comment-edit textarea');editRich.value='==Edited==';editRich.dispatchEvent(new Event('input',{bubbles:true}));
+    await richCard.querySelector('.comment-edit').onsubmit(new Event('submit',{cancelable:true}));
+    assert(document.querySelector('#comment-history mark')?.textContent==='Edited','Edited comment formatting did not render');
+    const safe=document.createElement('div');
+    renderFormattedComment(safe,'[Unsafe](javascript:alert(1)) <script>alert(1)</script>\n\n\x60\x60\x60\n<script>literal</script>\n\x60\x60\x60');
+    assert(!safe.querySelector('script,img,a'),'Unsafe HTML or URL was rendered');
+    assert(safe.querySelector('pre code')?.textContent==='<script>literal</script>','Code block did not preserve literal source');
+    result.checks.push('Note comment toolbar, preview, formatted send/edit, lists, code and safe rendering');
+
     const noteClosed=new Promise(resolve=>editor.addEventListener('close',resolve,{once:true}));
     await closeEditor();await noteClosed;
     const picker=document.querySelector('#week-date');
@@ -255,6 +284,91 @@ TEST_JS = r"""
       assert(!(await request('/api/projects')).projects.some(item=>item.id===project.id),'Project still exists');
       result.checks.push('Project delete and project picker refresh');
     } finally {window.confirm=originalConfirm;}
+    const discussionProject=workspace.projects.find(project=>project.status!=='completed');
+    const discussionTask=(await workspacePost('/api/tasks',{project_id:discussionProject.id,title:'Formatted discussion task'})).task;
+    const discussionSub=(await workspacePost('/api/tasks',{project_id:discussionProject.id,parent_id:discussionTask.id,title:'Formatted discussion subtask'})).task;
+    workspace.projectId=discussionProject.id;await refreshProjectList();await loadProject();
+    for(const taskId of [null,discussionTask.id,discussionSub.id]) {
+      await setDiscussion(discussionProject.id,taskId);
+      const input=document.querySelector('#project-comment-body');input.value='**Context bold** ==Context highlight==';input.dispatchEvent(new Event('input',{bubbles:true}));
+      assert(document.querySelector('#project-comment-form .comment-format-toolbar'),'Discussion toolbar missing');
+      await document.querySelector('#project-comment-form').onsubmit(new Event('submit',{cancelable:true}));
+      const card=[...document.querySelectorAll('#project-comment-history .comment')].at(-1);
+      assert(card.querySelector('strong')&&card.querySelector('mark'),'Context formatting missing');
+      card.querySelector('.comment-menu-actions button').click();
+      assert(card.querySelector('.discussion-edit .comment-format-toolbar'),'Discussion edit toolbar missing');
+      const edit=card.querySelector('.discussion-edit textarea');edit.value='*Edited context*';edit.dispatchEvent(new Event('input',{bubbles:true}));
+      await card.querySelector('.discussion-edit').onsubmit(new Event('submit',{cancelable:true}));
+      assert(document.querySelector('#project-comment-history .comment:last-child em'),'Discussion edit formatting failed');
+    }
+    await setDiscussion(discussionProject.id,null);
+    result.checks.push('Formatted project, task and subtask comment submission and editing');
+    const archivedProject=(await workspacePost('/api/projects',{name:'Restore browser project',description:'Keep all related data'})).project;
+    const archivedTask=(await workspacePost('/api/tasks',{project_id:archivedProject.id,title:'Preserved task',priority:'high'})).task;
+    await workspacePost('/api/projects/'+archivedProject.id+'/comments',{body:'Preserved project discussion'});
+    workspace.projectId=archivedProject.id;await refreshProjectList();await loadProject();
+    const projectStatusSelect=document.querySelector('.project-status-control select');
+    projectStatusSelect.value='completed';await projectStatusSelect.onchange();
+    assert(![...document.querySelector('#project-select').options].some(option=>option.value===String(archivedProject.id)),'Completed project remains in selector');
+    assert(workspace.projectId!==archivedProject.id,'Completed project remains selected');
+    const allProjects=(await request('/api/projects')).projects;
+    for(const project of allProjects)await workspacePost('/api/projects/'+project.id+'/status',{status:'completed'});
+    await refreshProjectList();await loadProject();
+    assert(workspace.projectId===null,'All-completed state should not select an archived project');
+    assert(document.querySelector('#project-overview').textContent.includes('Restore projects'),'All-completed state should explain restoration');
+    document.querySelector('#restore-projects').click();
+    for(let attempt=0;attempt<100&&!document.querySelector('#restore-project-list input[value="'+archivedProject.id+'"]');attempt++)await pause(50);
+    assert(!document.querySelector('#restore-projects-page').hidden,'Settings did not open restore page');
+    const restoreChoice=document.querySelector('#restore-project-list input[value="'+archivedProject.id+'"]');
+    assert(restoreChoice,'Completed project missing from restore list');
+    restoreChoice.checked=true;restoreChoice.dispatchEvent(new Event('change'));
+    const oldConfirm=window.confirm;
+    try {
+      window.confirm=()=>false;
+      await document.querySelector('#restore-project-form').onsubmit(new Event('submit',{cancelable:true}));
+      assert((await request('/api/projects/'+archivedProject.id)).project.status==='completed','Cancel unexpectedly restored project');
+      window.confirm=()=>true;
+      await document.querySelector('#restore-project-form').onsubmit(new Event('submit',{cancelable:true}));
+    } finally {window.confirm=oldConfirm;}
+    for(let attempt=0;attempt<100&&(document.querySelector('#projects-page').hidden||document.querySelector('#project-select').value!==String(archivedProject.id));attempt++)await pause(50);
+    assert(document.querySelector('#project-select').value===String(archivedProject.id),'Restored project was not selected');
+    const restoredProject=await request('/api/projects/'+archivedProject.id);
+    assert(restoredProject.project.status==='active','Project was not restored as active');
+    assert(restoredProject.tasks.some(task=>task.id===archivedTask.id)&&restoredProject.comments.some(comment=>comment.body==='Preserved project discussion'),'Restoration lost related data');
+    assert(localStorage.getItem(lastProjectKey)===String(archivedProject.id),'Restored project not remembered');
+    result.checks.push('Completed project filtering, automatic fallback, all-completed state and confirmed restoration preserving data');
+
+    for(let attempt=0;attempt<80&&backupPending();attempt++)await pause(50);
+    settingsMenu.open=true;
+    assert(!document.querySelector('#settings-menu summary').hasAttribute('disabled'),'Settings is disabled');
+    const originalAnchorClick=HTMLAnchorElement.prototype.click;
+    let downloadName='';
+    HTMLAnchorElement.prototype.click=function(){downloadName=this.download;};
+    try {await document.querySelector('#export-data').onclick();}
+    finally {HTMLAnchorElement.prototype.click=originalAnchorClick;}
+    assert(downloadName.endsWith('.pplanner'),'Export did not create a Pplanner download');
+    const savedBackup=await request('/api/data/export');
+    const extraNote=(await workspacePost('/api/notes',{date:document.querySelector('#calendar .day').dataset.date,title:'Discard on restore'})).note;
+    document.querySelector('#import-data').click();
+    assert(importDialog.open,'Import dialog did not open');
+    await readImportFile(new File(['not valid JSON'],'invalid.pplanner'));
+    assert(document.querySelector('#import-submit').disabled,'Invalid file enables import');
+    const transfer=new DataTransfer();
+    transfer.items.add(new File([JSON.stringify(savedBackup)],'browser-backup.pplanner',{type:'application/json'}));
+    document.querySelector('#import-dropzone').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+    for(let attempt=0;attempt<60&&!importBackup;attempt++)await pause(50);
+    assert(importBackup?.format==='pplanner-backup','Drag/drop did not load backup');
+    assert(document.querySelector('#import-submit').disabled,'Import must require explicit confirmation');
+    document.querySelector('#import-confirm').checked=true;
+    document.querySelector('#import-confirm').dispatchEvent(new Event('change'));
+    assert(!document.querySelector('#import-submit').disabled,'Confirmed valid backup did not enable import');
+    await document.querySelector('#import-form').onsubmit(new Event('submit',{cancelable:true}));
+    assert(importDone,'Restore UI failed: '+document.querySelector('#import-status').textContent);
+    const restored=await request('/api/data/export');
+    assert(JSON.stringify(restored.tables)===JSON.stringify(savedBackup.tables),'Imported data differs from exported data');
+    assert(!restored.tables.notes.some(note=>note.id===extraNote.id),'Import did not overwrite later data');
+    assert(document.querySelector('#import-status').textContent.includes('Recovery backup:'),'Recovery information missing');
+    result.checks.push('Settings export download, invalid file rejection, drag/drop import, confirmation and complete replacement');
   }catch(error){result.errors.push(error.stack||String(error));}
   result.passed=!result.errors.length;
   report.textContent=JSON.stringify(result);

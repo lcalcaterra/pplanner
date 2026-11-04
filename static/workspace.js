@@ -19,10 +19,11 @@ async function formAction(form,callback) {
   finally { fields.forEach((field,i)=>field.disabled=states[i]); }
 }
 const projectStatuses=['active','suspended','completed','rejected','closed'];
+function unfinishedProjects() { return workspace.projects.filter(project=>project.status!=='completed'); }
 function populateProjects(select,all) {
   const previous=select.value;
   select.replaceChildren(new Option(all ? 'All projects' : 'Choose a project',''));
-  workspace.projects.forEach(project=>select.add(new Option(project.name,String(project.id))));
+  (all?workspace.projects:unfinishedProjects()).forEach(project=>select.add(new Option(project.name,String(project.id))));
   select.value=previous;
 }
 const lastProjectKey='pplanner.lastProjectId';
@@ -39,16 +40,18 @@ function rememberProject(id) {
 async function refreshProjectList() {
   const data=await request('/api/projects');
   workspace.projects=data.projects;
-  const available=id=>workspace.projects.some(project=>project.id===id);
+  const availableProjects=unfinishedProjects();
+  const available=id=>availableProjects.some(project=>project.id===id);
   const previous=workspace.projectId;
   const remembered=rememberedProjectId();
-  workspace.projectId=available(previous)?previous:available(remembered)?remembered:workspace.projects[0]?.id??null;
+  workspace.projectId=available(previous)?previous:available(remembered)?remembered:availableProjects[0]?.id??null;
   if(previous!==workspace.projectId) {
     workspace.taskId=null;
     workspace.expanded.clear();
   }
-  if(!workspace.projects.length)rememberProject(null);
+  if(!availableProjects.length)rememberProject(null);
   populateProjects($('#project-select'),false);
+  if(!availableProjects.length)$('#project-select').options[0].textContent='No unfinished projects';
   populateProjects($('#gantt-project-select'),true);
   if (workspace.projectId) {
     const select=$('#project-select');
@@ -495,7 +498,7 @@ async function loadProject() {
   ++workspace.detailLoad;
   if(!workspace.projectId) {
     workspace.tasks=[]; workspace.project=null;
-    $('#project-overview').replaceChildren(element('p','Choose a project, or use + to create your first one.','workspace-empty'));
+    $('#project-overview').replaceChildren(element('p',workspace.projects.some(project=>project.status==='completed')?'No unfinished projects. Open Settings > Restore projects, or use + to create a project.':'Choose a project, or use + to create your first one.','workspace-empty'));
     $('#task-detail').hidden=true; paintTasks(); setDiscussion(null,null); return;
   }
   $('#project-status').textContent='Loading project...';
@@ -528,7 +531,10 @@ async function loadProject() {
         if(workspace.projectId===projectId) {
           workspace.project=saved.project;
           statusSelect.className='status-'+saved.project.status;
-          $('#project-status').textContent='Project status saved.';
+          if(saved.project.status==='completed') {
+            await refreshProjectList();await loadProject();
+            $('#project-status').textContent='Project completed. Restore it from Settings when needed.';
+          } else $('#project-status').textContent='Project status saved.';
         }
       } catch(err) {
         statusSelect.value=previous;
@@ -594,7 +600,7 @@ async function launchCreator(kind) {
   if(kind!=='project') {
     const select=$('#workspace-create-form').elements.project_id;
     select.add(new Option('Choose a project',''));
-    workspace.projects.forEach(project=>select.add(new Option(project.name,String(project.id))));
+    unfinishedProjects().forEach(project=>select.add(new Option(project.name,String(project.id))));
     select.value=workspace.projectId?String(workspace.projectId):'';
     select.onchange=fillCreatorContext;
   }
@@ -642,6 +648,7 @@ let discussionContext=null, discussionTicket=0, discussionBusy=false;
 const discussionDrafts=new Map(), discussionEdits=new Map();
 function discussionKey(context) {return context ? context.projectId+':'+(context.taskId||'project') : '';}
 function updateDiscussionSend() {
+  refreshCommentEditor(document.querySelector("#project-comment-body"));
   $('#project-comment-send').disabled=!discussionContext || discussionBusy || !$('#project-comment-body').value.trim();
 }
 async function setDiscussion(projectId,taskId) {
@@ -681,7 +688,7 @@ function projectCommentCard(comment) {
   const actions=element('div',undefined,'comment-menu-actions'),edit=element('button','Edit comment'),remove=element('button','Remove comment','remove-comment');
   edit.type=remove.type='button'; actions.append(edit,remove); menu.append(summary,actions);
   menu.onkeydown=event=>{if(event.key==='Escape'&&menu.open){event.preventDefault();event.stopPropagation();menu.open=false;summary.focus();}};
-  const body=element('p',comment.body); header.append(time,menu);card.append(header,body);
+  const body=element('div'); renderFormattedComment(body,comment.body); header.append(time,menu);card.append(header,body);
   const context={projectId:comment.project_id,taskId:comment.task_id};
   edit.onclick=()=>{
     if(discussionBusy || $('.discussion-edit',card)) return;
@@ -692,7 +699,7 @@ function projectCommentCard(comment) {
     label.append(input);
     const buttons=element('div',undefined,'comment-edit-actions'),cancel=element('button','Cancel','cancel'),save=element('button','Save','insert');
     cancel.type='button'; save.type='submit'; buttons.append(cancel,save);form.append(label,buttons);
-    body.hidden=menu.hidden=true;card.append(form);input.focus();
+    body.hidden=menu.hidden=true;card.append(form);enhanceCommentInput(input);input.focus();
     cancel.onclick=()=>{discussionEdits.delete(comment.id);form.remove();body.hidden=menu.hidden=false;summary.focus();};
     form.onsubmit=async event=>{
       event.preventDefault(); if(!input.value.trim() || discussionBusy)return;
@@ -808,6 +815,9 @@ async function loadGantt() {
       const phase=task.phase_name||'Task';
       if((end-start+1)/days*plot>70) group.append(svgElement('text',{x:left+(start-min)/days*plot+9,y:y+10,class:'gantt-bar-label'},phase.slice(0,Math.max(1,Math.floor((end-start+1)/days*plot/6)-2))));
       const navigate=()=>{
+        if(data.projects.find(project=>project.id===task.project_id)?.status==='completed') {
+          location.hash='restore-projects';return;
+        }
         workspace.projectId=task.project_id; workspace.taskId=task.id;
         if(location.hash==='#projects') showPage(); else location.hash='projects';
       };
@@ -820,20 +830,21 @@ async function loadGantt() {
 }
 $('#gantt-project-select').onchange=loadGantt;
 async function showPage() {
-  const name=['calendar','projects','gantt'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'calendar';
+  const name=['calendar','projects','gantt','restore-projects'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'calendar';
   document.querySelectorAll('[data-page]').forEach(link=>{
-    if(link.dataset.page===name) link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current');
+    if(link.dataset.page===name || (name==='restore-projects'&&link.dataset.page==='projects')) link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current');
   });
-  for(const page of ['calendar','projects','gantt']) $('#'+page+'-page').hidden=page!==name;
-  document.title='Pplanner - '+name[0].toUpperCase()+name.slice(1);
+  for(const page of ['calendar','projects','gantt','restore-projects']) $('#'+page+'-page').hidden=page!==name;
+  document.title='Pplanner - '+(name==='restore-projects'?'Restore projects':name[0].toUpperCase()+name.slice(1));
   if(name==='calendar') return;
   try {
     await refreshProjectList();
+    if(name==='restore-projects') { await loadRestoreProjects(); return; }
     if(name==='projects') {
       await loadProject();
       if(workspace.taskId) await openTask(workspace.taskId);
     } else await loadGantt();
-  } catch(err) { $('#'+(name==='projects' ? 'project' : 'gantt')+'-status').textContent=err.message; }
+  } catch(err) { $('#'+(name==='restore-projects'?'restore':name==='projects' ? 'project' : 'gantt')+'-status').textContent=err.message; }
 }
 const creationMenu=$('#project-add-menu');
 document.addEventListener('pointerdown',event=>{if(!creationMenu.contains(event.target))creationMenu.open=false;});
