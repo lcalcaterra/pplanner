@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import sqlite3
@@ -12,7 +13,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, quote
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get("PPLANNER_DB", ROOT / "data" / "planner.sqlite3"))
@@ -122,6 +123,49 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlsplit(self.path)
+        image_parts=url.path.strip("/").split("/")
+        if len(image_parts)==3 and image_parts[:2]==["api","comment-images"] and image_parts[2].isdigit():
+            with connect() as db:
+                found=db.execute("SELECT content FROM comment_images WHERE id=?",(int(image_parts[2]),)).fetchone()
+            if found is None:
+                self.respond(404,{"error":"Image not found."})
+                return
+            try:
+                data,media=project_store.comment_image_content(found["content"])
+            except ValueError:
+                self.respond(503,{"error":"Could not load image."})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type",media)
+            self.send_header("Content-Length",str(len(data)))
+            self.send_header("X-Content-Type-Options","nosniff")
+            self.send_header("Cache-Control","no-store")
+            self.send_header("Content-Security-Policy","sandbox; default-src 'none'")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        attachment_parts=url.path.strip("/").split("/")
+        if len(attachment_parts)==3 and attachment_parts[:2]==["api","attachments"] and attachment_parts[2].isdigit():
+            with connect() as db:
+                attachment=db.execute("SELECT * FROM task_attachments WHERE id=?",(int(attachment_parts[2]),)).fetchone()
+            if attachment is None:
+                self.respond(404,{"error":"Attachment not found."})
+                return
+            try:
+                filename,data=project_store.attachment_content(attachment["filename"],attachment["content"])
+            except ValueError:
+                self.respond(503,{"error":"Could not read attachment."})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type","application/octet-stream")
+            self.send_header("Content-Disposition","attachment; filename=download; filename*=UTF-8''"+quote(filename,safe=""))
+            self.send_header("Content-Length",str(len(data)))
+            self.send_header("X-Content-Type-Options","nosniff")
+            self.send_header("Cache-Control","no-store")
+            self.send_header("Content-Security-Policy","sandbox; default-src 'none'")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if url.path == "/api/data/export":
             try:
                 with connect() as db:
@@ -184,7 +228,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         paths = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/comments.js": ("comments.js", "text/javascript"),
                  "/style.css": ("style.css", "text/css"), "/business.css": ("business.css", "text/css"), "/backup.js": ("backup.js", "text/javascript"), "/restore.js": ("restore.js", "text/javascript"), "/workspace.js": ("workspace.js", "text/javascript")}
-        for icon in ("left-arrow", "right-arrow", "settings", "add", "bin", "calendar", "project", "gantt", "locked", "update-required", "loading", "completed", "high-priority", "medium-priority", "low-priority", "send", "logo"):
+        for icon in ("left-arrow", "right-arrow", "settings", "add", "bin", "calendar", "project", "gantt", "locked", "update-required", "loading", "completed", "high-priority", "medium-priority", "low-priority", "send", "logo", "attachments"):
             paths[f"/imgs/{icon}.png"] = (f"../imgs/{icon}.png", "image/png")
         if url.path not in paths:
             self.respond(404, {"error": "Not found."})
@@ -206,7 +250,9 @@ class Handler(BaseHTTPRequestHandler):
         action_path = self.path.startswith("/api/notes/")
         workspace_path = self.path.startswith(("/api/projects", "/api/tasks"))
         import_path=self.path == "/api/data/import"
-        if self.path != "/api/notes" and not action_path and not workspace_path and not import_path:
+        image_upload=self.path == "/api/comment-images"
+        attachment_upload=bool(re.fullmatch(r"/api/tasks/[0-9]+/attachments",self.path))
+        if self.path != "/api/notes" and not action_path and not workspace_path and not import_path and not image_upload:
             self.respond(404, {"error": "Not found."})
             return
         # Reject browser cross-origin writes; this service intentionally has no CORS.
@@ -226,7 +272,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= (backup_store.MAX_BYTES if import_path else MAX_BODY):
+            if not 0 < length <= (backup_store.MAX_BYTES if import_path else project_store.MAX_COMMENT_IMAGE_REQUEST if image_upload else project_store.MAX_ATTACHMENT_REQUEST if attachment_upload else MAX_BODY):
                 self.respond(413, {"error": "Request is too large or empty."})
                 return
             if self.headers.get_content_type() != "application/json":
@@ -243,6 +289,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(200,{"imported":True,"recovery_backup":filename})
                 return
             rollover_week()
+            if image_upload:
+                with connect() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    image=project_store.add_comment_image(db,payload)
+                self.respond(201,{"image":image})
+                return
             if workspace_path:
                 with connect() as db:
                     db.execute("BEGIN IMMEDIATE")
@@ -342,6 +394,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 db.execute("DELETE FROM comments WHERE id = ? AND note_id = ?", (comment_id, note_id))
                 result = {"deleted_comment_id": comment_id}
+            project_store.prune_comment_images(db,comment["body"])
             db.commit()
             self.respond(200, result)
             return

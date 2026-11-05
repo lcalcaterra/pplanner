@@ -1,6 +1,8 @@
 """Project/task persistence and API. No external dependencies."""
 from datetime import date
 import re
+import base64
+import binascii
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
@@ -122,6 +124,7 @@ def read(db, path, query):
                     "phases":[dict(r) for r in db.execute("SELECT * FROM project_phases WHERE project_id=? ORDER BY id",(item_id,))]}
         task = row(db,"project_tasks",item_id)
         return {"task":task,
+                "attachments":attachment_rows(db,item_id),
                 "comments":discussion(db,task["project_id"],item_id),
                 "subtasks":[metadata(db,dict(r),"task") for r in db.execute("SELECT * FROM project_tasks WHERE parent_id=? ORDER BY position,id DESC",(item_id,))],
                 "notes":[note_record(db,r) for r in db.execute("SELECT n.* FROM notes n JOIN task_notes l ON l.note_id=n.id WHERE l.task_id=? ORDER BY n.date DESC,n.id DESC",(item_id,))],
@@ -204,6 +207,16 @@ def write(db,path,payload):
     task_id=int(parts[2])
     row(db,"project_tasks",task_id)
     action=parts[3]
+    if action=="attachments":
+        filename,content=attachment_content(payload.get("filename"),payload.get("content"))
+        db.execute("INSERT INTO task_attachments(task_id,filename,size,content) VALUES (?,?,?,?)",(task_id,filename,len(content),base64.b64encode(content).decode("ascii")))
+        return 201,{"attachments":attachment_rows(db,task_id)}
+    if action=="attachment-delete":
+        attachment=row(db,"task_attachments",payload.get("attachment_id"))
+        if attachment["task_id"]!=task_id:
+            raise LookupError("Attachment not found on this task.")
+        db.execute("DELETE FROM task_attachments WHERE id=?",(attachment["id"],))
+        return 200,{"attachments":attachment_rows(db,task_id)}
     if action=="move":
         task=row(db,"project_tasks",task_id)
         before=payload.get("before_id")
@@ -345,8 +358,10 @@ def write_discussion(db,project_id,action,payload):
     if action=="comment-edit":
         body=text(payload.get("body"),"Comment",10000,True)
         db.execute("UPDATE project_comments SET body=? WHERE id=?",(body,comment["id"]))
+        prune_comment_images(db,comment["body"])
         return 200,{"comment":row(db,"project_comments",comment["id"])}
     db.execute("DELETE FROM project_comments WHERE id=?",(comment["id"],))
+    prune_comment_images(db,comment["body"])
     return 200,{"deleted_comment_id":comment["id"]}
 
 def migrate_task_dates(database):
@@ -428,3 +443,95 @@ def set_note_project(db,note_id,project_id):
     db.execute("DELETE FROM note_projects WHERE note_id=?",(note_id,))
     if project_id is not None:
         db.execute("INSERT INTO note_projects VALUES (?,?)",(note_id,project_id))
+
+# Files stay in SQLite so task deletion and backup/restore remain atomic.
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_ATTACHMENT_REQUEST = 4 * ((MAX_ATTACHMENT_BYTES + 2) // 3) + 16384
+SCHEMA += """
+CREATE TABLE IF NOT EXISTS task_attachments (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ task_id INTEGER NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+ filename TEXT NOT NULL,
+ size INTEGER NOT NULL CHECK(size >= 0),
+ content TEXT NOT NULL,
+ created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS attachments_task ON task_attachments(task_id,id);
+"""
+
+def attachment_content(filename, content):
+    filename=text(filename,"Filename",255,True)
+    if any(ord(c)<32 or ord(c)==127 or c in "/\\" for c in filename):
+        raise ValueError("Use a filename without paths or control characters.")
+    if not isinstance(content,str) or len(content)>4*((MAX_ATTACHMENT_BYTES+2)//3):
+        raise ValueError("Each attachment must be 10 MB or smaller.")
+    try:
+        decoded=base64.b64decode(content,validate=True)
+    except (ValueError,binascii.Error) as exc:
+        raise ValueError("Invalid attachment content.") from exc
+    if len(decoded)>MAX_ATTACHMENT_BYTES:
+        raise ValueError("Each attachment must be 10 MB or smaller.")
+    return filename,decoded
+
+def attachment_rows(db,task_id):
+    return [dict(r) for r in db.execute("SELECT id,task_id,filename,size,created_at FROM task_attachments WHERE task_id=? ORDER BY id DESC",(task_id,))]
+
+MAX_COMMENT_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_COMMENT_IMAGE_REQUEST = 4 * ((MAX_COMMENT_IMAGE_BYTES + 2) // 3) + 4096
+SCHEMA += """
+CREATE TABLE IF NOT EXISTS comment_images (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ note_id INTEGER REFERENCES notes(id) ON DELETE CASCADE,
+ project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+ task_id INTEGER REFERENCES project_tasks(id) ON DELETE CASCADE,
+ content TEXT NOT NULL,
+ media_type TEXT NOT NULL,
+ size INTEGER NOT NULL CHECK(size >= 0),
+ created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+ CHECK((note_id IS NOT NULL AND project_id IS NULL AND task_id IS NULL) OR (note_id IS NULL AND project_id IS NOT NULL))
+);
+"""
+
+def comment_image_content(content):
+    if not isinstance(content,str) or len(content)>4*((MAX_COMMENT_IMAGE_BYTES+2)//3):
+        raise ValueError("Comment images must be 5 MB or smaller.")
+    try:
+        data=base64.b64decode(content,validate=True)
+    except (ValueError,binascii.Error) as exc:
+        raise ValueError("Invalid image data.") from exc
+    if len(data)>MAX_COMMENT_IMAGE_BYTES:
+        raise ValueError("Comment images must be 5 MB or smaller.")
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        media="image/png"
+    elif data.startswith(b"\xff\xd8\xff"):
+        media="image/jpeg"
+    elif data.startswith((b"GIF87a",b"GIF89a")):
+        media="image/gif"
+    elif data[:4]==b"RIFF" and data[8:12]==b"WEBP":
+        media="image/webp"
+    else:
+        raise ValueError("Choose a PNG, JPEG, GIF or WebP image. SVG and other files are not supported.")
+    return data,media
+
+def add_comment_image(db,payload):
+    note_id=payload.get("note_id")
+    project_id=payload.get("project_id")
+    task_id=payload.get("task_id")
+    if note_id is not None:
+        if project_id is not None or task_id is not None:
+            raise ValueError("Choose one comment context.")
+        row(db,"notes",note_id)
+    else:
+        comment_context(db,project_id,task_id)
+    data,media=comment_image_content(payload.get("content"))
+    result=db.execute("INSERT INTO comment_images(note_id,project_id,task_id,content,media_type,size) VALUES (?,?,?,?,?,?)",(note_id,project_id,task_id,base64.b64encode(data).decode("ascii"),media,len(data)))
+    return {"id":result.lastrowid,"url":"/api/comment-images/"+str(result.lastrowid),"media_type":media,"size":len(data)}
+
+def prune_comment_images(db,old_body):
+    for value in set(re.findall(r"/api/comment-images/([0-9]+)",old_body)):
+        url="/api/comment-images/"+value
+        # Keep any image still referenced by another comment, or by an edit.
+        candidates=db.execute("SELECT body FROM comments WHERE instr(body,?)>0 UNION ALL SELECT body FROM project_comments WHERE instr(body,?)>0",(url,url))
+        used=any(value in re.findall(r"/api/comment-images/([0-9]+)",candidate[0]) for candidate in candidates)
+        if not used:
+            db.execute("DELETE FROM comment_images WHERE id=?",(int(value),))

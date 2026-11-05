@@ -1,6 +1,6 @@
 // Restoration changes only project status, preserving all related records.
 let restoreProjectId=null,restoreProjectBusy=false,restoreLoad=0;
-$('#restore-projects').onclick=()=>{settingsMenu.open=false;location.hash='restore-projects';};
+$('#restore-projects').onclick=()=>{if(commentImageUploads){$('#backup-status').textContent='Wait for the image upload to finish.';return;}settingsMenu.open=false;location.hash='restore-projects';};
 async function loadRestoreProjects() {
   const ticket=++restoreLoad;
   restoreProjectId=null;$('#restore-project-submit').disabled=true;

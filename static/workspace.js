@@ -61,6 +61,7 @@ async function refreshProjectList() {
 }
 
 const taskDialog=$('#task-editor-dialog');
+let taskAttachmentBusy=false;
 let taskEditorTask=null, taskSavedSignature='', taskSaveTimer=null, taskSavePromise=null, taskLoading=false, taskClosing=false, taskComposing=false, taskDeleting=false;
 function taskDraft() {
   const form=$('#task-edit-form');
@@ -160,6 +161,8 @@ function buildTaskEditForm(task) {
   return form;
 }
 async function closeTaskEditor() {
+  if(commentImageUploads){$('#task-editor-status').textContent='Wait for the image upload to finish.';return;}
+  if(taskAttachmentBusy){$('#task-editor-status').textContent='Wait for the attachment operation to finish.';return;}
   if(taskLoading||taskClosing||discussionBusy||taskDeleting)return;
   taskClosing=true;
   try {
@@ -185,7 +188,7 @@ window.addEventListener('beforeunload',event=>{
 
 
 async function deleteTaskRecord(task,button) {
-  if(taskDeleting||discussionBusy||taskLoading)return;
+  if(commentImageUploads||taskAttachmentBusy||taskDeleting||discussionBusy||taskLoading)return;
   const kind=task.parent_id?'subtask':'task';
   if(!confirm('Delete '+kind+' "'+task.title+'"? Its subtasks, comments and checkpoints will also be deleted. Linked calendar notes are kept. This cannot be undone.'))return;
   taskDeleting=true;workspace.deleting=true;
@@ -216,7 +219,7 @@ async function deleteTaskRecord(task,button) {
   }
 }
 async function deleteProjectRecord(project,button,statusSelect) {
-  if(workspace.deleting)return;
+  if(commentImageUploads||workspace.deleting)return;
   if(discussionBusy||statusSelect.disabled){$('#project-status').textContent='Wait for the current save to finish before deleting.';return;}
   if(!confirm('Delete project "'+project.name+'"? All its tasks, subtasks, phases, comments and checkpoints will be deleted. Linked calendar notes are kept. This cannot be undone.'))return;
   workspace.deleting=true;button.disabled=true;
@@ -242,7 +245,7 @@ async function deleteProjectRecord(project,button,statusSelect) {
 
 function sectionHeading(text) { return element('h3',text); }
 async function openTask(id) {
-  if(workspace.deleting||taskDeleting)return;
+  if(commentImageUploads||taskAttachmentBusy||workspace.deleting||taskDeleting)return;
   if(taskDialog.open && !await flushTaskSave())return;
   const ticket=++workspace.detailLoad;
   workspace.taskId=id;
@@ -300,6 +303,7 @@ async function openTask(id) {
       };
       create.append(subForm);sub.append(create);detail.append(sub);
     }
+    detail.append(buildTaskAttachments(task,data.attachments||[]));
     const check=element('section',undefined,'task-section');
     check.append(sectionHeading('Checkpoints'));
     data.checkpoints.forEach(item=>{
@@ -520,6 +524,7 @@ async function loadProject() {
     statusLabel.append(statusSelect);
     const projectId=data.project.id;
     statusSelect.onchange=async()=>{
+      if(commentImageUploads){statusSelect.value=workspace.project?.status||data.project.status;$('#project-status').textContent='Wait for the image upload to finish.';return;}
       const previous=workspace.projects.find(project=>project.id===projectId)?.status||data.project.status||'active';
       const value=statusSelect.value;
       statusSelect.disabled=true;
@@ -638,6 +643,7 @@ $('#workspace-create-form').onsubmit=async event=>{
   finally {creatorBusy=false; [...form.elements].forEach(field=>field.disabled=false);}
 };
 $('#project-select').onchange=()=>{
+  if(commentImageUploads){$('#project-select').value=String(workspace.projectId||'');return;}
   workspace.projectId=Number($('#project-select').value)||null; workspace.taskId=null;
   workspace.expanded.clear(); $('#task-detail').hidden=true;
   setDiscussion(null,null); loadProject();
@@ -649,7 +655,7 @@ const discussionDrafts=new Map(), discussionEdits=new Map();
 function discussionKey(context) {return context ? context.projectId+':'+(context.taskId||'project') : '';}
 function updateDiscussionSend() {
   refreshCommentEditor(document.querySelector("#project-comment-body"));
-  $('#project-comment-send').disabled=!discussionContext || discussionBusy || !$('#project-comment-body').value.trim();
+  $('#project-comment-send').disabled=!discussionContext || discussionBusy || commentImageUploads || !$('#project-comment-body').value.trim();
 }
 async function setDiscussion(projectId,taskId) {
   if(discussionContext) discussionDrafts.set(discussionKey(discussionContext),$('#project-comment-body').value);
@@ -699,10 +705,10 @@ function projectCommentCard(comment) {
     label.append(input);
     const buttons=element('div',undefined,'comment-edit-actions'),cancel=element('button','Cancel','cancel'),save=element('button','Save','insert');
     cancel.type='button'; save.type='submit'; buttons.append(cancel,save);form.append(label,buttons);
-    body.hidden=menu.hidden=true;card.append(form);enhanceCommentInput(input);input.focus();
+    body.hidden=menu.hidden=true;card.append(form);enhanceCommentInput(input,()=>({project_id:context.projectId,task_id:context.taskId}));input.focus();
     cancel.onclick=()=>{discussionEdits.delete(comment.id);form.remove();body.hidden=menu.hidden=false;summary.focus();};
     form.onsubmit=async event=>{
-      event.preventDefault(); if(!input.value.trim() || discussionBusy)return;
+      event.preventDefault(); if(commentImageUploads||!input.value.trim() || discussionBusy)return;
       const result=await discussionWrite(context,'comment-edit',{comment_id:comment.id,body:input.value});
       if(result)discussionEdits.delete(comment.id);
       if(result&&card.isConnected){const next=projectCommentCard(result.comment);card.replaceWith(next);$('summary',next).focus();}
@@ -732,7 +738,7 @@ async function discussionWrite(context,action,payload) {
 $('#project-comment-form').onsubmit=async event=>{
   event.preventDefault();
   const body=$('#project-comment-body').value;
-  if(!body.trim()||!discussionContext||discussionBusy)return;
+  if(commentImageUploads||!body.trim()||!discussionContext||discussionBusy)return;
   const context={...discussionContext};
   const result=await discussionWrite(context,'comments',{body});
   if(!result)return;
@@ -754,7 +760,7 @@ $('#project-comment-body').onkeydown=event=>{
     event.preventDefault(); if(!$('#project-comment-send').disabled)$('#project-comment-form').requestSubmit();
   }
 };
-$('#project-discussion-root').onclick=async()=>{if(taskDialog.open){await closeTaskEditor();return;}workspace.taskId=null;$('#task-detail').hidden=true;markTaskSelection();setDiscussion(workspace.projectId,null);};
+$('#project-discussion-root').onclick=async()=>{if(commentImageUploads)return;if(taskDialog.open){await closeTaskEditor();return;}workspace.taskId=null;$('#task-detail').hidden=true;markTaskSelection();setDiscussion(workspace.projectId,null);};
 
 function svgElement(tag,attrs,text) {
   const node=document.createElementNS('http://www.w3.org/2000/svg',tag);
@@ -851,3 +857,81 @@ document.addEventListener('pointerdown',event=>{if(!creationMenu.contains(event.
 creationMenu.addEventListener('keydown',event=>{if(event.key==='Escape'&&creationMenu.open){event.preventDefault();creationMenu.open=false;$('summary',creationMenu).focus();}});
 window.addEventListener('hashchange',showPage);
 showPage();
+
+function attachmentSize(bytes) {
+  if(bytes<1024)return bytes+' B';
+  if(bytes<1024*1024)return (bytes/1024).toFixed(1)+' KB';
+  return (bytes/(1024*1024)).toFixed(1)+' MB';
+}
+function buildTaskAttachments(task,attachments) {
+  const section=element('section',undefined,'task-section task-attachments');
+  const header=element('div',undefined,'attachment-heading');
+  header.append(sectionHeading('Attachments'));
+  const upload=element('button',undefined,'today-button attachment-upload');upload.type='button';upload.setAttribute('aria-label','Add attachments');
+  const icon=element('img');icon.src='/imgs/attachments.png';icon.alt='';icon.width=18;icon.height=18;
+  upload.append(icon,document.createTextNode('Add files'));
+  const picker=element('input');picker.type='file';picker.multiple=true;picker.hidden=true;
+  upload.onclick=()=>picker.click();
+  header.append(upload);section.append(header,picker);
+  const hint=element('p','Choose files or drop them here. Maximum 10 MB per file.','attachment-hint');
+  const status=element('p',undefined,'workspace-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+  const list=element('div',undefined,'attachment-list');
+  section.append(hint,list,status);
+  function paint(items) {
+    list.replaceChildren();
+    if(!items.length)list.append(element('p','No attachments yet.','workspace-empty'));
+    for(const attachment of items) {
+      const row=element('div',undefined,'attachment-row');
+      const link=element('a',attachment.filename,'attachment-download');link.href='/api/attachments/'+attachment.id;link.download=attachment.filename;link.title='Download '+attachment.filename;
+      const info=element('div',undefined,'attachment-info');
+      info.append(link,element('span',attachmentSize(attachment.size)+' ? '+new Date(attachment.created_at).toLocaleDateString(),'attachment-meta'));
+      const remove=element('button',undefined,'delete-note');remove.type='button';remove.setAttribute('aria-label','Remove attachment '+attachment.filename);remove.title='Remove attachment';
+      const bin=element('img');bin.src='/imgs/bin.png';bin.alt='';bin.width=16;bin.height=16;remove.append(bin);
+      remove.onclick=async()=>{
+        if(taskAttachmentBusy||!confirm('Remove attachment "'+attachment.filename+'"? This cannot be undone.'))return;
+        taskAttachmentBusy=true;upload.disabled=true;remove.disabled=true;status.textContent='Removing attachment...';
+        try {
+          const data=await workspacePost('/api/tasks/'+task.id+'/attachment-delete',{attachment_id:attachment.id});
+          paint(data.attachments);status.textContent='Attachment removed.';
+        } catch(error) {status.textContent='Could not remove attachment. '+error.message;}
+        finally {taskAttachmentBusy=false;upload.disabled=false;remove.disabled=false;}
+      };
+      row.append(info,remove);list.append(row);
+    }
+  }
+  async function uploadFiles(files) {
+    if(taskAttachmentBusy||!files.length)return;
+    taskAttachmentBusy=true;upload.disabled=true;picker.disabled=true;
+    let uploaded=0;const errors=[];
+    try {
+      for(const file of files) {
+        if(file.size>10*1024*1024){errors.push(file.name+': exceeds 10 MB.');continue;}
+        status.textContent='Uploading '+file.name+'...';
+        try {
+          const content=await new Promise((resolve,reject)=>{
+            const reader=new FileReader();
+            reader.onload=()=>resolve(String(reader.result).split(',')[1]||'');
+            reader.onerror=()=>reject(Error('Could not read this file.'));
+            reader.readAsDataURL(file);
+          });
+          const data=await workspacePost('/api/tasks/'+task.id+'/attachments',{filename:file.name,content});
+          paint(data.attachments);uploaded++;
+        } catch(error) {errors.push(file.name+': '+error.message);}
+      }
+      status.textContent=(uploaded?'Uploaded '+uploaded+' file'+(uploaded===1?'':'s')+'. ':'')+errors.join(' ');
+    } finally {taskAttachmentBusy=false;upload.disabled=false;picker.disabled=false;picker.value='';}
+  }
+  picker.onchange=()=>uploadFiles([...picker.files]);
+  section.addEventListener('dragover',event=>{
+    if(![...event.dataTransfer.types].includes('Files'))return;
+    event.preventDefault();section.classList.add('attachment-drop-target');
+  });
+  section.addEventListener('dragleave',()=>section.classList.remove('attachment-drop-target'));
+  section.addEventListener('drop',event=>{
+    if(!event.dataTransfer.files.length)return;
+    event.preventDefault();event.stopPropagation();section.classList.remove('attachment-drop-target');
+    uploadFiles([...event.dataTransfer.files]);
+  });
+  paint(attachments);
+  return section;
+}

@@ -471,3 +471,22 @@ body { background:linear-gradient(135deg,#f6f9ff 0%,#f1f5fb 65%,#edf3fc 100%); }
 .comment-rich a { color:#1769d2; text-decoration:underline; text-underline-offset:2px; }
 .comment-rich a:hover { color:#104b9b; }
 .comment-edit .comment-format-toolbar,.discussion-edit .comment-format-toolbar { margin-top:6px; }
+
+.attachment-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.attachment-heading h3 { margin:0; }
+.attachment-upload { display:inline-flex; align-items:center; gap:7px; padding:8px 11px; }
+.attachment-upload img { object-fit:contain; mix-blend-mode:multiply; }
+.attachment-hint,.attachment-meta { color:var(--muted); font-size:11px; line-height:1.6; }
+.attachment-list { display:flex; flex-direction:column; gap:8px; margin:12px 0; }
+.attachment-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid var(--line); border-radius:9px; background:#f7f9fd; }
+.attachment-info { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.attachment-download { color:var(--accent); overflow-wrap:anywhere; font-size:13px; text-decoration:none; }
+.attachment-download:hover { text-decoration:underline; }
+.attachment-row .delete-note { flex-shrink:0; opacity:.75; }
+.task-attachments.attachment-drop-target { outline:2px dashed var(--accent); outline-offset:5px; border-radius:8px; background:var(--accent-soft); }
+
+.comment-rich .comment-inline-image { display:block; max-width:100%; max-height:340px; width:auto; height:auto; object-fit:contain; border:1px solid var(--line); border-radius:8px; margin:9px 0; }
+.comment-image-link { display:block; }
+.comment-image-status { display:block; color:var(--muted); font-size:10px; line-height:1.5; padding-top:4px; overflow-wrap:anywhere; }
+.comment-image-status:empty { display:none; }
+.comment-format-preview .comment-inline-image { max-height:200px; }

@@ -2,7 +2,7 @@
 const settingsMenu=$('#settings-menu'),importDialog=$('#import-dialog');
 let importBackup=null,importBusy=false,importDone=false,fileReadTicket=0;
 function backupPending() {
-  return mutationBusy||pendingCreates||taskSavePromise||discussionBusy||taskDeleting;
+  return mutationBusy||pendingCreates||taskSavePromise||discussionBusy||taskDeleting||taskAttachmentBusy||commentImageUploads;
 }
 function updateImportButton() {
   $('#import-submit').disabled=importBusy||!importBackup||!$('#import-confirm').checked;
@@ -30,7 +30,7 @@ async function readImportFile(file) {
   $('#import-status').textContent='';$('#import-file-info').textContent='';
   if(!file)return;
   try {
-    if(!file.size||file.size>64*1024*1024)throw Error('Choose a nonempty backup file up to 64 MB.');
+    if(!file.size||file.size>256*1024*1024)throw Error('Choose a nonempty backup file up to 256 MB.');
     const backup=JSON.parse(await file.text());
     if(ticket!==fileReadTicket)return;
     if(backup?.format!=='pplanner-backup'||backup.version!==1||!backup.tables)throw Error('Choose a supported Pplanner export file.');

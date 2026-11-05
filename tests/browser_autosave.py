@@ -105,6 +105,26 @@ TEST_JS = r"""
         }
       }
       result.checks.push('Status/priority menu autosave and row icons: '+task.title);
+      const fileSection=document.querySelector('.task-attachments');
+      assert(fileSection.querySelector('img[src="/imgs/attachments.png"]'),'Attachment icon missing');
+      const files=new DataTransfer();
+      files.items.add(new File(['Browser attachment content'],'browser-file.txt',{type:'text/plain'}));
+      fileSection.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:files}));
+      for(let attempt=0;attempt<100&&taskAttachmentBusy;attempt++)await pause(50);
+      let attached=(await request('/api/tasks/'+task.id)).attachments;
+      assert(attached.length===1,'File upload failed: '+fileSection.textContent);
+      const downloaded=await fetch('/api/attachments/'+attached[0].id);
+      assert((await downloaded.text())==='Browser attachment content','Downloaded bytes differ');
+      assert(fileSection.querySelector('.attachment-download').download==='browser-file.txt','Download link missing filename');
+      const originalFileConfirm=window.confirm;
+      try {
+        window.confirm=()=>true;
+        await fileSection.querySelector('.attachment-row button').onclick();
+      } finally {window.confirm=originalFileConfirm;}
+      assert((await request('/api/tasks/'+task.id)).attachments.length===0,'Attachment removal failed');
+      // Leave one file for the existing complete export/import browser check.
+      await workspacePost('/api/tasks/'+task.id+'/attachments',{filename:'backup-file.txt',content:btoa('Preserved attachment bytes')});
+      result.checks.push('Attachment icon, drop upload, download and removal: '+task.title);
       const closed=new Promise(resolve=>taskDialog.addEventListener('close',resolve,{once:true}));
       await closeTaskEditor();
       await closed;
@@ -249,6 +269,23 @@ TEST_JS = r"""
     assert(safe.querySelector('pre code')?.textContent==='<script>literal</script>','Code block did not preserve literal source');
     result.checks.push('Note comment toolbar, preview, formatted send/edit, lists, code and safe rendering');
 
+    const pngContent='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgaPj/HwAEggJ/59habAAAAABJRU5ErkJggg==';
+    const imageBytes=Uint8Array.from(atob(pngContent),c=>c.charCodeAt(0));
+    const pasted=new DataTransfer();pasted.items.add(new File([imageBytes],'pasted.png',{type:'image/png'}));
+    commentInput.value='Pasted screenshot: ';commentInput.setSelectionRange(commentInput.value.length,commentInput.value.length);
+    commentInput.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:pasted}));
+    for(let attempt=0;attempt<100&&commentImageUploads;attempt++)await pause(50);
+    assert(commentInput.value.includes('![pasted.png](/api/comment-images/'),'Clipboard image was not inserted: '+commentInput.value);
+    await document.querySelector('#comment-form').onsubmit(new Event('submit',{cancelable:true}));
+    const savedImage=document.querySelector('#comment-history .comment:last-child .comment-inline-image');
+    assert(savedImage,'Saved comment image missing');
+    savedImage.loading='eager';
+    for(let attempt=0;attempt<80&&!savedImage.complete;attempt++)await pause(50);
+    assert(savedImage.naturalWidth===1,'Uploaded PNG did not load correctly');
+    assert((await fetch(savedImage.getAttribute('src'))).headers.get('Content-Type')==='image/png','Image MIME type incorrect');
+    const noExternal=document.createElement('div');renderFormattedComment(noExternal,'![external](https://example.com/tracker.png)');
+    assert(!noExternal.querySelector('img'),'External image URLs should not load');
+    result.checks.push('Clipboard image paste, local upload, saved rendering and image decoding');
     const noteClosed=new Promise(resolve=>editor.addEventListener('close',resolve,{once:true}));
     await closeEditor();await noteClosed;
     const picker=document.querySelector('#week-date');
@@ -292,9 +329,15 @@ TEST_JS = r"""
       await setDiscussion(discussionProject.id,taskId);
       const input=document.querySelector('#project-comment-body');input.value='**Context bold** ==Context highlight==';input.dispatchEvent(new Event('input',{bubbles:true}));
       assert(document.querySelector('#project-comment-form .comment-format-toolbar'),'Discussion toolbar missing');
+      const imagePaste=new DataTransfer();imagePaste.items.add(new File([imageBytes],'context.png',{type:'image/png'}));
+      input.setSelectionRange(input.value.length,input.value.length);
+      input.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:imagePaste}));
+      for(let attempt=0;attempt<100&&commentImageUploads;attempt++)await pause(50);
+      assert(input.value.includes('/api/comment-images/'),'Project/task/subtask image paste failed');
+
       await document.querySelector('#project-comment-form').onsubmit(new Event('submit',{cancelable:true}));
       const card=[...document.querySelectorAll('#project-comment-history .comment')].at(-1);
-      assert(card.querySelector('strong')&&card.querySelector('mark'),'Context formatting missing');
+      assert(card.querySelector('strong')&&card.querySelector('mark')&&card.querySelector('.comment-inline-image'),'Context formatting or image missing');
       card.querySelector('.comment-menu-actions button').click();
       assert(card.querySelector('.discussion-edit .comment-format-toolbar'),'Discussion edit toolbar missing');
       const edit=card.querySelector('.discussion-edit textarea');edit.value='*Edited context*';edit.dispatchEvent(new Event('input',{bubbles:true}));

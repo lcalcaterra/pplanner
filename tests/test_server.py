@@ -45,6 +45,136 @@ class PlannerTests(unittest.TestCase):
             raw = response.read()
             return response.status, json.loads(raw) if "application/json" in response.headers["Content-Type"] else raw
 
+    def image_content(self):
+        return 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgaPj/HwAEggJ/59habAAAAABJRU5ErkJggg=='
+
+    def test_comment_images_context_download_and_validation(self):
+        import base64
+        note=self.add("Images")
+        project=self.request("/api/projects",{"name":"Images"})[1]["project"]["id"]
+        task=self.request("/api/tasks",{"project_id":project,"title":"Task"})[1]["task"]["id"]
+        for context in [{"note_id":note},{"project_id":project},{"project_id":project,"task_id":task}]:
+            status,data=self.request("/api/comment-images",{**context,"content":self.image_content()})
+            self.assertEqual(status,201,data)
+            image=data["image"]
+            self.assertEqual(self.request(image["url"]),(200,base64.b64decode(self.image_content())))
+            with urlopen(self.url+image["url"]) as response:
+                self.assertEqual(response.headers["Content-Type"],"image/png")
+                self.assertEqual(response.headers["X-Content-Type-Options"],"nosniff")
+        for payload in [{"note_id":note,"content":"PHN2Zz48L3N2Zz4="},{"note_id":99999,"content":self.image_content()},{"note_id":note,"project_id":project,"content":self.image_content()},{"content":self.image_content()},{"note_id":True,"content":self.image_content()}]:
+            self.assertIn(self.request("/api/comment-images",payload)[0],(400,404))
+        with patch.object(app.project_store,"MAX_COMMENT_IMAGE_BYTES",2):
+            self.assertEqual(self.request("/api/comment-images",{"note_id":note,"content":self.image_content()})[0],400)
+        self.assertEqual(self.request("/api/comment-images/999999")[0],404)
+        self.request(f"/api/projects/{project}/delete",{})
+        with app.connect() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM comment_images").fetchone()[0],1)
+        self.action(note,"delete",{})
+        with app.connect() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM comment_images").fetchone()[0],0)
+
+    def test_comment_images_cleanup_and_backup(self):
+        import copy
+        note=self.add("Images")
+        image=self.request("/api/comment-images",{"note_id":note,"content":self.image_content()})[1]["image"]
+        body="![Image]("+image["url"]+")"
+        one=self.action(note,"comments",{"body":body})[1]["comment"]
+        two=self.action(note,"comments",{"body":body})[1]["comment"]
+        backup=self.backup_file()
+        self.action(note,"comment-delete",{"comment_id":one["id"]})
+        self.assertEqual(self.request(image["url"])[0],200)
+        self.action(note,"comment-edit",{"comment_id":two["id"],"body":"Removed image"})
+        self.assertEqual(self.request(image["url"])[0],404)
+        self.assertEqual(self.restore_file(backup)[0],200)
+        self.assertEqual(self.request(image["url"])[0],200)
+        invalid=copy.deepcopy(backup)
+        invalid["tables"]["comment_images"][0]["media_type"]="image/svg+xml"
+        self.assertEqual(self.restore_file(invalid)[0],400)
+        legacy=copy.deepcopy(backup)
+        del legacy["tables"]["comment_images"]
+        legacy["tables"]["sqlite_sequence"]=[r for r in legacy["tables"]["sqlite_sequence"] if r["name"]!="comment_images"]
+        self.assertEqual(self.restore_file(legacy)[0],200)
+
+    def test_comment_image_cleanup_matches_exact_ids(self):
+        note=self.add("Images")
+        images=[self.request("/api/comment-images",{"note_id":note,"content":self.image_content()})[1]["image"] for _ in range(10)]
+        first=self.action(note,"comments",{"body":"![First]("+images[0]["url"]+")"})[1]["comment"]
+        self.action(note,"comments",{"body":"![Tenth]("+images[9]["url"]+")"})
+        self.action(note,"comment-delete",{"comment_id":first["id"]})
+        self.assertEqual(self.request(images[0]["url"])[0],404)
+        self.assertEqual(self.request(images[9]["url"])[0],200)
+
+    def test_project_comment_image_cleanup(self):
+        project=self.request("/api/projects",{"name":"Images"})[1]["project"]["id"]
+        image=self.request("/api/comment-images",{"project_id":project,"content":self.image_content()})[1]["image"]
+        comment=self.request(f"/api/projects/{project}/comments",{"body":"![Image]("+image["url"]+")"})[1]["comment"]
+        self.request(f"/api/projects/{project}/comment-delete",{"comment_id":comment["id"]})
+        self.assertEqual(self.request(image["url"])[0],404)
+
+    def test_task_attachments_upload_download_and_ownership(self):
+        import base64
+        project=self.request("/api/projects",{"name":"Files"})[1]["project"]["id"]
+        task=self.request("/api/tasks",{"project_id":project,"title":"Task"})[1]["task"]["id"]
+        child=self.request("/api/tasks",{"project_id":project,"parent_id":task,"title":"Subtask"})[1]["task"]["id"]
+        raw=b"\x00\x01Original binary file\xff"
+        for target in [task,child]:
+            status,data=self.request(f"/api/tasks/{target}/attachments",{"filename":"report.txt","content":base64.b64encode(raw).decode()})
+            self.assertEqual(status,201)
+            attachment=data["attachments"][0]
+            self.assertNotIn("content",attachment)
+            self.assertEqual(attachment["size"],len(raw))
+            self.assertEqual(self.request(f"/api/attachments/{attachment['id']}"),(200,raw))
+            with urlopen(self.url+f"/api/attachments/{attachment['id']}") as response:
+                self.assertIn("attachment;",response.headers["Content-Disposition"])
+                self.assertEqual(response.headers["Content-Type"],"application/octet-stream")
+                self.assertEqual(response.headers["X-Content-Type-Options"],"nosniff")
+            other=child if target==task else task
+            self.assertEqual(self.request(f"/api/tasks/{other}/attachment-delete",{"attachment_id":attachment["id"]})[0],404)
+            app.initialize()
+            self.assertEqual(self.request(f"/api/tasks/{target}")[1]["attachments"][0]["id"],attachment["id"])
+        self.assertEqual(self.request(f"/api/tasks/{task}/delete",{})[0],200)
+        with app.connect() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM task_attachments").fetchone()[0],0)
+        self.assertEqual(self.request(f"/api/attachments/{attachment['id']}")[0],404)
+
+    def test_attachment_validation_removal_and_empty_file(self):
+        project=self.request("/api/projects",{"name":"Files"})[1]["project"]["id"]
+        task=self.request("/api/tasks",{"project_id":project,"title":"Task"})[1]["task"]["id"]
+        for filename,content in [("../file","YQ=="),("bad\nname","YQ=="),("bad\\name","YQ=="),("file","not base64!"),("","YQ=="),("file",None)]:
+            self.assertEqual(self.request(f"/api/tasks/{task}/attachments",{"filename":filename,"content":content})[0],400)
+        with patch.object(app.project_store,"MAX_ATTACHMENT_BYTES",2):
+            self.assertEqual(self.request(f"/api/tasks/{task}/attachments",{"filename":"file","content":"YWJj"})[0],400)
+        with patch.object(app.project_store,"MAX_ATTACHMENT_REQUEST",16):
+            self.assertEqual(self.request(f"/api/tasks/{task}/attachments",{"filename":"file","content":"YWJj"})[0],413)
+        status,data=self.request(f"/api/tasks/{task}/attachments",{"filename":"empty.txt","content":""})
+        self.assertEqual(status,201)
+        attachment=data["attachments"][0]
+        self.assertEqual(self.request(f"/api/attachments/{attachment['id']}"),(200,b""))
+        self.assertEqual(self.request(f"/api/tasks/{task}/attachment-delete",{"attachment_id":attachment["id"]})[0],200)
+        self.assertEqual(self.request(f"/api/tasks/{task}")[1]["attachments"],[])
+        self.assertEqual(self.request("/api/attachments/999999")[0],404)
+        self.assertEqual(self.request("/imgs/attachments.png")[0],200)
+
+    def test_attachments_backup_roundtrip_and_legacy_import(self):
+        import copy
+        project=self.request("/api/projects",{"name":"Backup files"})[1]["project"]["id"]
+        task=self.request("/api/tasks",{"project_id":project,"title":"Task"})[1]["task"]["id"]
+        data=self.request(f"/api/tasks/{task}/attachments",{"filename":"spec.txt","content":"YWJj"})[1]
+        attachment=data["attachments"][0]
+        exported=self.backup_file()
+        self.request(f"/api/tasks/{task}/attachment-delete",{"attachment_id":attachment["id"]})
+        self.assertEqual(self.restore_file(exported)[0],200)
+        self.assertEqual(self.request(f"/api/attachments/{attachment['id']}"),(200,b"abc"))
+        corrupt=copy.deepcopy(exported)
+        corrupt["tables"]["task_attachments"][0]["size"]=999
+        self.assertEqual(self.restore_file(corrupt)[0],400)
+        self.assertEqual(self.request(f"/api/attachments/{attachment['id']}"),(200,b"abc"))
+        legacy=copy.deepcopy(exported)
+        del legacy["tables"]["task_attachments"]
+        legacy["tables"]["sqlite_sequence"]=[item for item in legacy["tables"]["sqlite_sequence"] if item["name"]!="task_attachments"]
+        self.assertEqual(self.restore_file(legacy)[0],200)
+        self.assertEqual(self.request(f"/api/tasks/{task}")[1]["attachments"],[])
+
     def test_project_completion_and_restore_preserve_related_data(self):
         project=self.request("/api/projects",{"name":"History","tags":["area:archive"]})[1]["project"]["id"]
         task=self.request("/api/tasks",{"project_id":project,"title":"Keep task","priority":"high"})[1]["task"]["id"]

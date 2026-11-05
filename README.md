@@ -290,6 +290,23 @@ Deletion is permanent. Deleting a project removes its tasks and subtasks;
 deleting a task removes its subtasks. Associated discussions, checkpoints and
 links are removed, but linked calendar notes and their own comments are kept.
 
+## Task and subtask attachments
+
+Open a task or subtask and scroll to **Attachments**. Click **Add files** (the
+attachment icon) or drop files onto the section. You can upload multiple files,
+up to **10 MB per file**.
+
+The section lists filenames, sizes and upload dates. Click a filename to download
+the original file, or use its bin icon and confirm to remove it. Uploads and
+removals save immediately; wait for them to finish before closing the editor.
+Files are downloaded as attachments rather than displayed as executable pages.
+
+Attachments are stored with your local planner data and included in exports,
+imports and automatic recovery backups. Older Pplanner exports without
+attachments can still be imported. Deleting a task, its parent task or its project
+also removes the associated attachments. Docker and systemd installations keep
+attachments in their existing persistent database location.
+
 ## Gantt
 
 Use **Gantt** to view schedules for one project or all projects.
@@ -314,6 +331,15 @@ Notes, projects, tasks and subtasks have their own comment histories.
 - **Ctrl+B**, **Ctrl+I** and **Ctrl+U** (or Cmd on macOS) format selected text.
 - Formatting is available for new comments and comment edits on notes, projects,
   tasks and subtasks. Existing text and formatting are preserved in backups.
+- Use **Image** in the toolbar to upload a picture, or paste an image from
+  your clipboard with **Ctrl+V** (Cmd+V on macOS). PNG, JPEG, GIF and WebP
+  are supported, up to **5 MB per image**.
+- Images appear in Preview and saved comments; click a saved image to open it
+  at full size. Wait for the upload to finish, then send the comment.
+- Images stay local and are included in exports/imports. Removing an image
+  from a saved comment or deleting that comment removes it when no other saved
+  comment references it. Deleting its note, task or project removes its images.
+- External image URLs and SVG uploads are not rendered as comment images.
 - Blank comments cannot be submitted.
 - Use a comment's three-dot menu to edit or remove it.
 - Comment submission is explicit; comment drafts do not autosave.
@@ -327,7 +353,7 @@ Open **Settings** in the upper bar.
 
 Choose **Export data** to download a `.pplanner` backup containing all saved
 planner data, including notes, projects, tasks, subtasks, schedules, comments,
-tags, statuses, priorities, checkpoints, links and ordering.
+tags, statuses, priorities, checkpoints, links, ordering and task/subtask attachments.
 
 Unsaved drafts, browser-local preferences, application files and images are not
 included. Backup files contain readable private content, so store them securely.
@@ -342,7 +368,7 @@ included. Backup files contain readable private content, so store them securely.
 
 Import replaces all current planner data rather than merging it. The app
 validates the backup before replacement and rejects incompatible or invalid
-files. The upload limit is 64 MiB including the request wrapper.
+files. The upload limit is 256 MiB including the request wrapper.
 
 A recovery backup is saved automatically in `data/backups/` before replacement,
 or in `backups/` beside a custom database location. Recovery files can be imported

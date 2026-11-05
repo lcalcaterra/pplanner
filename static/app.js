@@ -296,6 +296,7 @@ function editorDirty() {
   return editorNote && (($('#edit-body').value !== editorNote.body || $('#edit-description').value !== (editorNote.description || '')) || $('#edit-date').value !== editorNote.date || noteTagsDirty() || noteProjectDirty() || $('#comment-body').value.trim() || [...document.querySelectorAll('.comment-edit textarea')].some(input => input.value !== input.dataset.original));
 }
 async function closeEditor() {
+  if(commentImageUploads){$('#editor-status').textContent='Wait for the image upload to finish.';return;}
   if ((mutationBusy && !noteSavePromise) || editorLoading) { $('#editor-status').textContent = 'Please wait for the current request to finish.'; return; }
   await flushNoteAutosave();
   if (editorDirty() && !window.confirm('Discard unsaved changes and the comment draft?')) return;
@@ -370,11 +371,12 @@ function commentCard(comment) {
     body.hidden = true;
     menu.hidden = true;
     article.append(form);
-    enhanceCommentInput(input);
+    enhanceCommentInput(input,()=>({note_id:comment.note_id}));
     input.focus();
     cancel.onclick = () => { form.remove(); body.hidden = false; menu.hidden = false; toggle.focus(); };
     form.onsubmit = async event => {
       event.preventDefault();
+      if(commentImageUploads)return;
       if (!input.value.trim()) { $('#editor-status').textContent = 'Write a comment before saving.'; input.focus(); return; }
       const result = await editorMutation('comment-edit',{comment_id:comment.id,body:input.value},'Comment updated.');
       if (!result) return;
@@ -456,6 +458,7 @@ async function editorMutation(action, payload, message) {
 $('#comment-form').onsubmit = async event => {
   event.preventDefault();
   const body = $('#comment-body').value;
+  if(commentImageUploads)return;
   if (!body.trim()) { $('#editor-status').textContent = 'Write a comment before adding it.'; return; }
   const data = await editorMutation('comments',{body},'Comment added.');
   if (!data) return;
@@ -490,7 +493,7 @@ function noteDraftDirty() {
 }
 function updateCommentSend() {
   refreshCommentEditor(document.querySelector("#comment-body"));
-  $('#send-comment').disabled = !editorNote || editorLoading || mutationBusy || !$('#comment-body').value.trim();
+  $('#send-comment').disabled = !editorNote || editorLoading || mutationBusy || commentImageUploads || !$('#comment-body').value.trim();
 }
 function scheduleNoteAutosave() {
   clearTimeout(noteSaveTimer);

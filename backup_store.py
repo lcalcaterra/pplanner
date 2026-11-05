@@ -3,12 +3,13 @@ import json
 import os
 import re
 import sqlite3
+import project_store
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
 FORMAT = "pplanner-backup"
 VERSION = 1
-MAX_BYTES = 64 * 1024 * 1024
+MAX_BYTES = 256 * 1024 * 1024
 
 def quoted(name):
     return '"' + name.replace('"', '""') + '"'
@@ -79,6 +80,18 @@ def check_semantics(db):
         for row in db.execute("SELECT name,value FROM " + table):
             if not row["name"].strip() or not row["value"].strip() or len(row["name"])>80 or len(row["value"])>200 or any(c in row["name"]+row["value"] for c in "\r\n"):
                 raise ValueError("Invalid tags.")
+    for image in db.execute("SELECT * FROM comment_images"):
+        content,media=project_store.comment_image_content(image["content"])
+        if len(content)!=image["size"] or media!=image["media_type"]:
+            raise ValueError("Invalid comment image.")
+        if image["task_id"] is not None and tasks[image["task_id"]]["project_id"]!=image["project_id"]:
+            raise ValueError("Image belongs to another project.")
+        datetime.fromisoformat(image["created_at"].replace("Z","+00:00"))
+    for attachment in db.execute("SELECT * FROM task_attachments"):
+        _,content=project_store.attachment_content(attachment["filename"],attachment["content"])
+        if len(content)!=attachment["size"]:
+            raise ValueError("Attachment size does not match its content.")
+        datetime.fromisoformat(attachment["created_at"].replace("Z","+00:00"))
     for row in db.execute("SELECT value FROM app_state WHERE key='rollover_week'"):
         valid_date(row[0])
         if date.fromisoformat(row[0]).weekday() != 0:
@@ -97,6 +110,12 @@ def validate(db, payload):
     if not isinstance(payload,dict) or payload.get("format") != FORMAT or type(payload.get("version")) is not int or payload["version"] != VERSION:
         raise ValueError("Choose a Pplanner export file with a supported backup version.")
     data = payload.get("tables")
+    # Version 1 backups produced before attachments remain importable.
+    if isinstance(data,dict):
+        data={**data}
+        for optional in ("task_attachments","comment_images"):
+            if optional not in data:
+                data[optional]=[]
     if not isinstance(data,dict) or set(data) != set(tables(db)):
         raise ValueError("Backup is incomplete or uses a different database version.")
     for name in tables(db):

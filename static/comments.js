@@ -4,11 +4,17 @@ function commentLinkAllowed(url) {
 }
 function commentInline(target,text,depth=0) {
   if(depth>8){target.append(document.createTextNode(text));return;}
-  const tokens=/https?:\/\/[^\s<>]+|\*\*|~~|\+\+|==|\x60|\*|_|\[/g;
+  const tokens=/!\[[^\]\n]*\]\(\/api\/comment-images\/[0-9]+\)|https?:\/\/[^\s<>]+|\*\*|~~|\+\+|==|\x60|\*|_|\[/g;
   let start=0,match;
   while((match=tokens.exec(text))) {
     const at=match.index,token=match[0];
     if(at>start)target.append(document.createTextNode(text.slice(start,at)));
+    if(token.startsWith('![')) {
+      const imageMatch=token.match(/^!\[([^\]]*)\]\((\/api\/comment-images\/[0-9]+)\)$/);
+      const link=document.createElement('a');link.href=imageMatch[2];link.target='_blank';link.rel='noopener noreferrer';link.className='comment-image-link';
+      const image=document.createElement('img');image.src=imageMatch[2];image.alt=imageMatch[1]||'Comment image';image.className='comment-inline-image';image.loading='lazy';image.decoding='async';
+      link.append(image);target.append(link);start=tokens.lastIndex;continue;
+    }
     if(/^https?:\/\//i.test(token)) {
       const url=token.replace(/[.,;!?]+$/,'');
       const a=document.createElement('a');a.href=url;a.textContent=url;a.target='_blank';a.rel='noopener noreferrer';
@@ -68,25 +74,27 @@ function renderFormattedComment(target,text) {
   flush();
 }
 function clearCommentFormatting(text) {
-  return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'$1')
+  return text.replace(/(!?)\[([^\]]+)\]\(([^)]+)\)/g,(all,image,label)=>image?all:label)
     .replace(/\*\*|~~|\+\+|==|\x60\x60\x60|\x60/g,'')
     .replace(/([*_])([^\n]+?)\1/g,'$2')
     .replace(/^\s*(?:>\s?|[-*]\s+|\d+\.\s+)/gm,'');
 }
+let commentImageUploads=0;
 const commentEditors=new WeakMap();
 function refreshCommentEditor(input) {
   const state=commentEditors.get(input);if(!state)return;
-  state.toolbar.querySelectorAll('button').forEach(button=>button.disabled=input.disabled);
+  state.toolbar.querySelectorAll('button').forEach(button=>button.disabled=input.disabled||Boolean(state.uploading));
+  if(!input.value.trim()&&!state.uploading&&state.uploadStatus?.textContent==='Image added. Send the comment to save it.')state.uploadStatus.textContent='';
   if(!state.preview.hidden)renderFormattedComment(state.preview,input.value);
 }
-function enhanceCommentInput(input) {
+function enhanceCommentInput(input,contextProvider) {
   if(!input||commentEditors.has(input))return;
   const toolbar=document.createElement('div');toolbar.className='comment-format-toolbar';toolbar.setAttribute('role','group');toolbar.setAttribute('aria-label','Comment formatting');
   const preview=document.createElement('div');preview.className='comment-format-preview';preview.hidden=true;preview.setAttribute('aria-label','Comment preview');
   const more=document.createElement('details');more.className='comment-format-more';
   const summary=document.createElement('summary');summary.textContent='\u22ef';summary.setAttribute('aria-label','More formatting');
   const menu=document.createElement('div');menu.className='comment-format-options';more.append(summary,menu);
-  const state={toolbar,preview};commentEditors.set(input,state);
+  const state={toolbar,preview,uploading:0};commentEditors.set(input,state);
   function showSource(){input.hidden=false;preview.hidden=true;previewButton.setAttribute('aria-pressed','false');}
   function change(action) {
     if(input.disabled||input.readOnly)return;
@@ -119,6 +127,53 @@ function enhanceCommentInput(input) {
     button.onpointerdown=event=>event.preventDefault();button.onclick=()=>change(action);
     (index<7?toolbar:menu).append(button);
   });
+  const imagePicker=document.createElement('input');imagePicker.type='file';imagePicker.accept='image/png,image/jpeg,image/gif,image/webp';imagePicker.multiple=true;imagePicker.hidden=true;
+  const imageButton=document.createElement('button');imageButton.type='button';imageButton.textContent='Image';imageButton.title='Insert image (or paste with Ctrl+V)';imageButton.setAttribute('aria-label','Insert image');
+  imageButton.onclick=()=>imagePicker.click();
+  const uploadStatus=document.createElement('span');uploadStatus.className='comment-image-status';uploadStatus.setAttribute('role','status');uploadStatus.setAttribute('aria-live','polite');state.uploadStatus=uploadStatus;
+  async function insertImages(files) {
+    if(input.disabled||input.readOnly||state.uploading||!files.length)return;
+    const context=contextProvider?.();
+    if(!context){uploadStatus.textContent='Open a note or choose a discussion first.';return;}
+    showSource();
+    state.uploading++;commentImageUploads++;refreshCommentEditor(input);
+    const notify=()=>{if(typeof updateCommentSend==='function')updateCommentSend();if(typeof updateDiscussionSend==='function')updateDiscussionSend();};
+    notify();
+    try {
+      for(const file of files) {
+        if(file.size>5*1024*1024){uploadStatus.textContent='Each image must be 5 MB or smaller.';continue;}
+        const placeholder='[Uploading image '+Math.random().toString(36).slice(2)+']';
+        const at=input.selectionStart,end=input.selectionEnd;
+        if(input.value.length+placeholder.length+150>input.maxLength){uploadStatus.textContent='There is not enough space in this comment for an image.';continue;}
+        input.setRangeText('\n'+placeholder+'\n',at,end,'end');input.dispatchEvent(new Event('input',{bubbles:true}));
+        uploadStatus.textContent='Uploading image...';
+        try {
+          const content=await new Promise((resolve,reject)=>{
+            const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]||'');reader.onerror=()=>reject(Error('Could not read image.'));reader.readAsDataURL(file);
+          });
+          const response=await fetch('/api/comment-images',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...context,content})});
+          const result=await response.json();if(!response.ok)throw Error(result.error||'Image upload failed.');
+          const index=input.value.indexOf(placeholder);
+          if(index>=0) {
+            const alt=(file.name||'Image').replace(/[\[\]\r\n]/g,' ').slice(0,100);
+            input.setRangeText('!['+alt+']('+result.image.url+')',index,index+placeholder.length,'end');
+            input.dispatchEvent(new Event('input',{bubbles:true}));
+          }
+          uploadStatus.textContent='Image added. Send the comment to save it.';
+        } catch(error) {
+          const index=input.value.indexOf(placeholder);
+          if(index>=0){input.setRangeText('',index,index+placeholder.length,'end');input.dispatchEvent(new Event('input',{bubbles:true}));}
+          uploadStatus.textContent='Could not add image. '+error.message;
+        }
+      }
+    } finally {state.uploading--;commentImageUploads--;imagePicker.value='';refreshCommentEditor(input);notify();input.focus();}
+  }
+  imagePicker.onchange=()=>insertImages([...imagePicker.files]);
+  input.addEventListener('paste',event=>{
+    const files=[...(event.clipboardData?.items||[])].filter(item=>item.kind==='file'&&item.type.startsWith('image/')).map(item=>item.getAsFile()).filter(Boolean);
+    if(files.length){event.preventDefault();insertImages(files);}
+  });
+  toolbar.append(imageButton,imagePicker);
   toolbar.append(more);
   const previewButton=document.createElement('button');previewButton.type='button';previewButton.textContent='Preview';previewButton.className='comment-preview-toggle';previewButton.setAttribute('aria-pressed','false');
   previewButton.onclick=()=>{
@@ -126,7 +181,8 @@ function enhanceCommentInput(input) {
     else {showSource();input.focus();}
   };
   toolbar.append(previewButton);
-  input.before(toolbar);input.after(preview);input.classList.add('comment-formatted-input');
+  input.before(toolbar);input.after(preview);
+  const composer=input.closest('.comment-composer');if(composer)composer.after(uploadStatus);else input.after(uploadStatus);input.classList.add('comment-formatted-input');
   input.addEventListener('input',()=>refreshCommentEditor(input));
   input.form?.addEventListener('reset',()=>setTimeout(()=>{showSource();refreshCommentEditor(input);},0));
   input.addEventListener('keydown',event=>{
@@ -136,5 +192,10 @@ function enhanceCommentInput(input) {
   });
   refreshCommentEditor(input);
 }
-enhanceCommentInput(document.querySelector('#comment-body'));
-enhanceCommentInput(document.querySelector('#project-comment-body'));
+enhanceCommentInput(document.querySelector('#comment-body'),()=>editorNote?{note_id:editorNote.id}:null);
+enhanceCommentInput(document.querySelector('#project-comment-body'),()=>discussionContext?{project_id:discussionContext.projectId,task_id:discussionContext.taskId}:null);
+
+document.addEventListener('click',event=>{
+  if(commentImageUploads&&event.target.closest('.page-nav a')){event.preventDefault();event.stopPropagation();}
+},true);
+window.addEventListener('beforeunload',event=>{if(commentImageUploads){event.preventDefault();event.returnValue='';}});
