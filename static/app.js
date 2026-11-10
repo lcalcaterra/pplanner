@@ -84,10 +84,6 @@ function card(note) {
   const body = document.createElement('p');
   body.className = 'note-body note-title';
   body.textContent = note.body;
-  const time = document.createElement('time');
-  time.className = 'note-time';
-  time.dateTime = note.created_at;
-  time.textContent = 'Added ' + new Intl.DateTimeFormat('en', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(note.created_at));
   article.append(toolbar,body);
   if (note.tags?.length) {
     const tags = document.createElement('div');
@@ -98,7 +94,6 @@ function card(note) {
     }
     article.append(tags);
   }
-  article.append(time);
   article.ondragstart = event => {
     if (mutationBusy || event.target.closest('button,select,input,textarea')) { event.preventDefault(); return; }
     dragged = note;
@@ -406,6 +401,8 @@ async function openEditor(note) {
   const token = ++editorToken;
   editorNote = null;
   editorLoading = true;
+  $('#note-created-at').textContent = '';
+  $('#note-created-at').removeAttribute('datetime');
   $('#edit-note-form').reset();
   $('#comment-form').reset();
   $('#comment-history').replaceChildren();
@@ -418,6 +415,8 @@ async function openEditor(note) {
     const data = await request('/api/notes/' + note.id);
     if (token !== editorToken) return;
     editorNote = data.note;
+    $('#note-created-at').dateTime = data.note.created_at;
+    $('#note-created-at').textContent = 'Added ' + new Intl.DateTimeFormat('en', {dateStyle:'medium',timeStyle:'short'}).format(new Date(data.note.created_at));
     $('#edit-date').value = data.note.date;
     $('#edit-body').value = data.note.body;
     $('#edit-description').value = data.note.description || '';

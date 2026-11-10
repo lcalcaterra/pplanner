@@ -490,3 +490,209 @@ body { background:linear-gradient(135deg,#f6f9ff 0%,#f1f5fb 65%,#edf3fc 100%); }
 .comment-image-status { display:block; color:var(--muted); font-size:10px; line-height:1.5; padding-top:4px; overflow-wrap:anywhere; }
 .comment-image-status:empty { display:none; }
 .comment-format-preview .comment-inline-image { max-height:200px; }
+
+/* Release polish: a consistent local-first workspace, preserving page geometry. */
+:root {
+  --ink:#172b49; --muted:#586d87; --paper:#f4f7fc;
+  --line:#dce5f1; --accent:#1769d2; --accent-soft:#eaf2ff;
+  --shadow-sm:0 2px 4px #182d4503,0 8px 24px #182d4505;
+}
+body { background:radial-gradient(ellipse at 92% 0%,#dceaff80,transparent 42%),#f4f7fc; }
+.topbar { background:linear-gradient(110deg,#10233f,#18365e 75%,#214c80); box-shadow:0 1px 0 #ffffff12 inset; }
+.brand { font-weight:700; letter-spacing:-.8px; }
+.brand-caption { font-weight:600; letter-spacing:1.8px; font-size:7px; }
+.private { padding:8px 13px; color:#e2ecfc; background:#ffffff08; }
+.private span { background:#82d8c3; box-shadow:0 0 0 3px #82d8c316; }
+.settings { background:#eaf2ff; border:1px solid #ffffff50; box-shadow:0 2px 8px #07152c20; }
+.page-nav { gap:9px; padding-top:8px; padding-bottom:8px; box-shadow:0 1px 0 #e2e9f3; }
+.page-nav a { align-self:center; height:39px; padding:0 17px; border-radius:9px; font-weight:600; font-size:13px; }
+.page-nav a:hover { background:#f2f6fc; }
+.page-nav a[aria-current=page] { background:#eaf2ff; color:#155fbf; box-shadow:0 1px 2px #145cba08; }
+.page-nav a[aria-current=page]::after { display:none; }
+.page-nav a img { width:17px; height:17px; }
+main { padding-top:28px; }
+h1 { font-weight:720; letter-spacing:-1.3px; }
+.eyebrow { color:#5277a6; letter-spacing:1.7px; font-size:9px; }
+.week-title h1 { margin-top:9px; }
+.week-title p { font-weight:550; color:#657a96; }
+.week-controls { padding:5px; border-radius:13px; box-shadow:0 3px 16px #193d6e08; }
+.today-button { color:#254971; font-weight:600; }
+.intro { color:#60738c; }
+.hint { color:#617996; }
+.calendar { gap:14px; }
+.day,.day:nth-child(n) { background:#eaf0f8; border-color:#dfe7f2; border-radius:16px; padding-top:16px; }
+.day.current { background:linear-gradient(165deg,#e0edff,#edf4ff 70%); border-color:#b7cff2; }
+.day-header { padding-bottom:22px; }
+.day-name { color:#536d8c; font-size:10px; letter-spacing:1px; }
+.day-number { width:40px; height:42px; border-radius:11px; background:#ffffffd9; font-weight:650; color:#365476; }
+.current .day-number { background:linear-gradient(145deg,#1464d0,#3987eb); box-shadow:0 4px 10px #1769d22b; }
+.today-label { font-size:6px; letter-spacing:1.1px; }
+.add-note { border-radius:9px; background:#ffffffd9; border-color:#d4dfed; }
+.add-note:hover:not(:disabled) { border-color:#8fb6ed; box-shadow:0 3px 10px #1769d217; }
+.note { border-color:#dfe7f2; border-radius:13px; box-shadow:0 2px 3px #213f6503,0 5px 12px #213f6505; }
+.note:hover { border-color:#a3bfe3; box-shadow:0 6px 20px #213f6512; }
+.note-title { font-size:13px; font-weight:650; line-height:1.6; color:#233e61; }
+.note-toolbar { margin-bottom:8px; }
+.note-time { color:#667e9b; font-size:10px; }
+.note.completed { opacity:.65; }
+.note.project-note { background:color-mix(in srgb,var(--note-project-color) 6%,white); }
+.note-project-badge { font-size:9px; border-radius:5px; }
+.tag-chip { background:#f3f6fb; border-color:#e1e8f2; color:#536e8c; border-radius:5px; font-size:10px; }
+.tag-chip.inherited-tag { background:#eaf2ff; border-color:#cfe0f8; color:#2d62a8; }
+.day-count { color:#607b9a; letter-spacing:1.1px; border-top:1px solid #d8e3f180; margin:9px 5px 0; padding:10px 2px 0; }
+.empty { padding-top:55px; }
+.empty-mark { width:48px; height:48px; background:#ffffff60; border:1px dashed #bdcfe5; color:#7b9ec8; border-radius:15px; font-size:25px; }
+.empty p { color:#637e9e; font-weight:550; }
+.empty>span:last-child { color:#7088a4; }
+.day.drop-target { box-shadow:inset 0 0 0 2px #2876dc; }
+.note.drop-before { border-top-color:#2876dc; }
+.workspace-heading h1 { margin-top:9px; }
+.workspace-heading p { color:#60738c; }
+.project-picker { font-weight:550; color:#526b8b; }
+.project-picker select { min-width:240px; border-color:#d4e0ef; box-shadow:0 2px 6px #173a6504; padding:11px 34px 11px 13px; }
+.project-add-menu>summary { box-shadow:0 4px 10px #1769d21a; }
+.project-overview { border-radius:15px; padding:22px 24px; box-shadow:var(--shadow-sm); background:linear-gradient(110deg,#fff,#fbfdff); }
+.project-overview-name { font-weight:650; color:#1d385c; font-size:21px; line-height:1.4; }
+.project-overview .task-description { color:#586f8c; line-height:1.8; }
+.project-status-control select { font-weight:600; }
+.panel-heading h2 { font-size:17px; font-weight:650; }
+.toggle-label { color:#576e8b; }
+.task-tree { border-radius:12px; border-color:#dce5f1; box-shadow:0 2px 6px #213f6504; }
+.task-tree>summary { padding:17px 16px; }
+.task-tree>summary:hover { background:#f6f9fe; }
+.task-tree.selected>summary { background:#edf4ff; }
+.task-tree-title { font-weight:600; font-size:14px; color:#243f61; }
+.task-tree-meta { color:#617b9a; font-size:10px; }
+.task-tree-children { background:#f3f7fd; border-left:2px solid #dce8f8; margin-left:25px; padding-left:14px; }
+.task-tree-children .task-tree-title { font-size:13px; }
+.task-disclosure { border-radius:6px; }
+.task-disclosure:hover { background:#e4edfb; color:#1769d2; }
+.project-discussion,.comment-panel {
+ background:linear-gradient(160deg,#f8fbff,#edf3fc);
+ border-color:#d6e3f3; border-radius:15px;
+ box-shadow:0 2px 8px #213f6503;
+}
+.project-discussion h2,.comment-panel h3 { color:#233f62; font-size:20px; font-weight:650; letter-spacing:-.5px; }
+.project-discussion>header { padding-bottom:15px; border-bottom:1px solid #dce6f3; }
+#project-comment-context { color:#5e7899; font-size:11px; }
+.comment-panel>h3 { padding-bottom:15px; border-bottom:1px solid #dce6f3; }
+.comment { border-color:#dce6f3; border-radius:11px; padding:13px; box-shadow:0 2px 5px #213f6504; }
+.comment time { color:#657e9b; }
+.comment-rich,.comment p { color:#365273; font-size:13px; }
+.no-comments { color:#647d99; line-height:1.8; }
+.comment-keyboard-hint { color:#647e9d; font-size:9px; }
+.comment-format-toolbar { background:#f5f8fe; border-color:#cfdded; padding:5px 4px; gap:1px; border-radius:10px 10px 0 0; }
+.comment-format-toolbar button,.comment-format-more>summary { color:#466587; border-radius:5px; }
+.comment-format-preview { border-color:#cfdded; }
+#send-comment,#project-comment-send { width:31px; height:31px; border-radius:9px; box-shadow:0 2px 5px #1769d218; }
+#send-comment:disabled,#project-comment-send:disabled { box-shadow:none; opacity:.35; }
+.workspace-form input,.workspace-form textarea,.workspace-form select,
+.editor-layout input,.editor-layout textarea,#edit-project,#project-comment-body,.activity-control select {
+ border-color:#d2dfef; background:#fff; border-radius:9px; color:#243f61;
+}
+.workspace-form input:hover,.workspace-form textarea:hover,.workspace-form select:hover,
+.editor-layout input:hover,.editor-layout textarea:hover,#edit-project:hover,#project-comment-body:hover { border-color:#adc5e4; }
+.workspace-form input:focus,.workspace-form textarea:focus,.workspace-form select:focus,
+.editor-layout input:focus,.editor-layout textarea:focus,#edit-project:focus,#project-comment-body:focus { border-color:#6c9ee1; }
+.workspace-form label,.editor-layout label { color:#486483; font-weight:600; }
+.field-hint,.optional-label { color:#6e829d; font-weight:400; }
+.comment-formatted-input,#comment-body.comment-formatted-input,#project-comment-body.comment-formatted-input { border-top-left-radius:0; border-top-right-radius:0; }
+.insert { font-weight:600; box-shadow:0 3px 8px #1769d219; padding:10px 16px; }
+.danger-button { border-color:#e9d0d2; color:#ac3f4c; background:#fff; }
+.cancel { color:#516c8b; font-weight:550; }
+#note-editor,#task-editor-dialog,#workspace-create-dialog,#import-dialog { border-radius:20px; border-color:#d6e3f4; box-shadow:0 30px 100px #0d234f40,0 0 0 1px #ffffff70 inset; }
+dialog::backdrop { background:#10254470; backdrop-filter:blur(7px); }
+.editor-header .icon-button { color:#47688e; background:#eef4fc; border-radius:10px; }
+#task-editor-dialog .task-detail-heading h2 { font-size:27px; font-weight:680; color:#1d385c; letter-spacing:-.7px; }
+.task-autosave-hint { color:#617b9b; }
+.task-section { border-color:#dce6f3; }
+.task-section h3 { font-weight:650; color:#294a70; }
+.creation-panel { background:#f9fbff; border-color:#d5e2f3; }
+.attachment-row { background:#f6f9fe; border-color:#dce6f3; }
+.gantt-container { border-radius:16px; box-shadow:var(--shadow-sm); border-color:#d7e3f2; }
+.legend-chip { border-radius:8px; padding:8px 11px; color:#526f90; }
+.gantt-axis { fill:#607997; }
+.gantt-task-label { fill:#2d496b; font-weight:550; }
+.gantt-project-label { fill:#647e9b; }
+.timeline-empty { color:#607b9c; }
+.workspace-empty { color:#647d9b; }
+.settings-options,.project-add-options,.comment-menu-actions,.comment-format-options { border-color:#d8e3f2; box-shadow:0 10px 35px #15365e1c,0 2px 6px #15365e08; padding:7px; }
+.settings-options button,.project-add-options button { border-radius:7px; font-weight:500; }
+.restore-project-row { border-radius:13px; box-shadow:var(--shadow-sm); }
+.restore-project-row:hover { border-color:#adc6e7; }
+footer { color:#607a99; }
+@media(min-width:1500px) { .calendar { gap:16px; } }
+@media(max-width:1100px) { .calendar { gap:10px; } }
+@media(max-width:700px) {
+ .project-picker select { min-width:0; width:100%; }
+ .task-tree-children { margin-left:10px; padding-left:10px; }
+ .project-overview { padding:18px; }
+}
+@media(max-width:600px) {
+ .page-nav { gap:5px; padding-top:7px; padding-bottom:7px; }
+ .page-nav a { height:37px; padding:0 13px; font-size:12px; }
+ .week-controls { border-radius:11px; }
+ .day-header { padding-bottom:22px; }
+ .comment-panel,.project-discussion { padding:16px; }
+ #task-editor-dialog .task-detail-heading h2 { font-size:23px; }
+}
+@media(forced-colors:active) {
+ .page-nav a[aria-current=page] { outline:2px solid Highlight; }
+ .day.current { border:2px solid Highlight; }
+ .note.completed { opacity:1; }
+}
+
+/* Center summary controls independently of text baselines and font metrics. */
+.settings-menu > summary.settings {
+  display:flex; align-items:center; justify-content:center;
+  padding:0; line-height:0;
+}
+.settings-menu > summary.settings img {
+  display:block; width:21px; height:21px; margin:0; object-fit:contain;
+}
+.project-add-menu > summary {
+  position:relative; padding:0; font-size:0; line-height:0;
+}
+.project-add-menu > summary::before,
+.project-add-menu > summary::after {
+  content:""; position:absolute; left:50%; top:50%;
+  transform:translate(-50%,-50%); background:currentColor;
+  border-radius:1px; pointer-events:none;
+}
+.project-add-menu > summary::before { width:14px; height:2px; }
+.project-add-menu > summary::after { width:2px; height:14px; }
+
+/* Compact page headings leave more viewport space for the actual work. */
+#calendar-page,#projects-page,#gantt-page { padding-top:16px; }
+.week-toolbar { min-height:58px; gap:16px; }
+.week-title h1 { font-size:28px; margin:4px 0; letter-spacing:-.8px; }
+.week-title .eyebrow { font-size:8px; letter-spacing:1.3px; }
+.week-title p { font-size:11px; }
+.intro { min-height:24px; margin:2px 0 10px; font-size:11px; }
+.week-controls { padding:3px; }
+.calendar { height:calc(100dvh - 274px); }
+.workspace-heading { margin:0 0 14px; }
+.workspace-heading h1 { font-size:28px; margin:4px 0; letter-spacing:-.8px; }
+.workspace-heading p { margin:2px 0; font-size:12px; line-height:1.5; }
+.workspace-heading .eyebrow { font-size:8px; letter-spacing:1.3px; }
+@media(min-width:701px) {
+ #projects-page { row-gap:12px; }
+ #projects-page>.workspace-heading { margin:0; }
+}
+@media(max-width:600px) {
+ #calendar-page,#projects-page,#gantt-page { padding-top:13px; }
+ .week-toolbar { flex-direction:row; align-items:center; flex-wrap:wrap; gap:10px; }
+ .week-title h1 { font-size:24px; }
+ .week-controls { align-self:center; margin:0; gap:1px; }
+ .week-controls .icon-button { width:29px; height:32px; }
+ .week-controls .today-button { padding:8px 10px; }
+ .intro { min-height:22px; margin:3px 0 8px; }
+ .calendar { height:calc(100dvh - 267px); }
+ .workspace-heading { gap:10px; margin-bottom:12px; }
+ .workspace-heading h1 { font-size:26px; }
+}
+
+/* Creation metadata belongs in the expanded note, not the calendar card. */
+.note-created-at { display:block; margin:0 0 14px; font-size:11px; line-height:1.5; color:var(--muted); }
+.note-created-at:empty { display:none; }
+.note .note-tags { margin-bottom:0; margin-top:9px; }
