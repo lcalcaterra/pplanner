@@ -696,3 +696,21 @@ footer { color:#607a99; }
 .note-created-at { display:block; margin:0 0 14px; font-size:11px; line-height:1.5; color:var(--muted); }
 .note-created-at:empty { display:none; }
 .note .note-tags { margin-bottom:0; margin-top:9px; }
+
+/* Draw close icons geometrically, avoiding the multiplication glyph baseline. */
+#editor-close,#task-editor-close {
+  position:relative; display:flex; align-items:center; justify-content:center;
+  padding:0; font-size:0; line-height:0;
+}
+#editor-close::before,#editor-close::after,
+#task-editor-close::before,#task-editor-close::after {
+  content:""; position:absolute; left:50%; top:50%;
+  width:13px; height:1.5px; border-radius:1px;
+  background:currentColor; pointer-events:none;
+}
+#editor-close::before,#task-editor-close::before {
+  transform:translate(-50%,-50%) rotate(45deg);
+}
+#editor-close::after,#task-editor-close::after {
+  transform:translate(-50%,-50%) rotate(-45deg);
+}
