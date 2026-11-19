@@ -1,4 +1,4 @@
-"""Pplanner: private, single-user weekly notes. Python 3.12+, no dependencies."""
+"""Pplanner: private, single-user weekly notes. Python 3.12+; local PDF text search uses pypdf."""
 import argparse
 import hashlib
 import json
@@ -9,6 +9,7 @@ import time
 import sqlite3
 import project_store
 import backup_store
+import documentation_store
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,15 +23,24 @@ MAX_BODY = 65536
 def backend_digest():
     """Fingerprint code loaded by this process; static assets are served fresh."""
     digest=hashlib.sha256()
-    for name in ("server.py","project_store.py","backup_store.py"):
+    for name in ("server.py","project_store.py","backup_store.py","documentation_store.py"):
         digest.update((ROOT/name).read_bytes())
     return digest.hexdigest()
 
 LOADED_BACKEND_DIGEST = backend_digest()
 
 
+class PlannerConnection(sqlite3.Connection):
+    """Finish the transaction and release SQLite resources on every exit."""
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def connect():
-    db = sqlite3.connect(DB, timeout=10)
+    db = sqlite3.connect(DB, timeout=10, factory=PlannerConnection)
     db.execute("PRAGMA foreign_keys = ON")
     db.row_factory = sqlite3.Row
     return db
@@ -67,6 +77,7 @@ def initialize():
             if statement.strip():
                 db.execute(statement)
         project_store.migrate(db)
+        db.executescript(documentation_store.SCHEMA)
 
 
 def planner_today():
@@ -94,6 +105,7 @@ def rollover_week(today=None):
 
 class PlannerServer(ThreadingHTTPServer):
     """Check the calendar even when no browser requests are arriving."""
+    request_queue_size = 64
     next_rollover_check = 0
 
     def service_actions(self):
@@ -123,6 +135,41 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlsplit(self.path)
+        if url.path.startswith("/api/documentation"):
+            try:
+                with connect() as db:
+                    match=re.fullmatch(r"/api/documentation/([0-9]+)/(file|download|media/([0-9]+))",url.path)
+                    if match:
+                        row=documentation_store.record(db,int(match[1]))
+                        if row["kind"]!="document": raise LookupError("This is a folder.")
+                        raw=documentation_store.decode(row["name"],row["content"])
+                        media=documentation_store.MEDIA[documentation_store.extension(row["name"])]
+                        if match[3] is not None:
+                            if documentation_store.extension(row["name"])!=".docx": raise LookupError("Image not found.")
+                            images=documentation_store.docx_model(raw)[1]
+                            index=int(match[3])
+                            if index>=len(images): raise LookupError("Image not found.")
+                            raw,media=images[index]
+                        self.send_response(200)
+                        self.send_header("Content-Type",media)
+                        self.send_header("Content-Length",str(len(raw)))
+                        disposition="attachment" if match[2]=="download" else "inline"
+                        self.send_header("Content-Disposition",disposition+"; filename*=UTF-8''"+quote(row["name"],safe=""))
+                        self.send_header("X-Content-Type-Options","nosniff")
+                        self.send_header("Cache-Control","no-store")
+                        # PDF is rendered by the browser's isolated viewer.
+                        self.send_header("Content-Security-Policy","default-src 'none'; frame-ancestors 'self'")
+                        self.end_headers()
+                        self.wfile.write(raw)
+                    else:
+                        self.respond(200,documentation_store.search(db,parse_qs(url.query).get("q",[""])[0]) if url.path=="/api/documentation/search" else documentation_store.read(db,url.path))
+            except LookupError as exc:
+                self.respond(404,{"error":str(exc)})
+            except (ValueError,TypeError) as exc:
+                self.respond(400,{"error":str(exc)})
+            except sqlite3.Error:
+                self.respond(503,{"error":"Could not load documentation. Please retry."})
+            return
         image_parts=url.path.strip("/").split("/")
         if len(image_parts)==3 and image_parts[:2]==["api","comment-images"] and image_parts[2].isdigit():
             with connect() as db:
@@ -224,11 +271,12 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(404, {"error": "Note not found."})
                     return
                 comments = [dict(c) for c in db.execute("SELECT * FROM comments WHERE note_id = ? ORDER BY id", (note["id"],))]
-            self.respond(200, {"note": project_store.note_record(db,note), "comments": comments})
+                result = {"note": project_store.note_record(db,note), "comments": comments}
+            self.respond(200, result)
             return
         paths = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/comments.js": ("comments.js", "text/javascript"),
-                 "/style.css": ("style.css", "text/css"), "/business.css": ("business.css", "text/css"), "/backup.js": ("backup.js", "text/javascript"), "/restore.js": ("restore.js", "text/javascript"), "/workspace.js": ("workspace.js", "text/javascript")}
-        for icon in ("left-arrow", "right-arrow", "settings", "add", "bin", "calendar", "project", "gantt", "locked", "update-required", "loading", "completed", "high-priority", "medium-priority", "low-priority", "send", "logo", "attachments"):
+                 "/documentation.js": ("documentation.js", "text/javascript"), "/documentation.css": ("documentation.css", "text/css"), "/style.css": ("style.css", "text/css"), "/business.css": ("business.css", "text/css"), "/backup.js": ("backup.js", "text/javascript"), "/restore.js": ("restore.js", "text/javascript"), "/workspace.js": ("workspace.js", "text/javascript")}
+        for icon in ("left-arrow", "right-arrow", "settings", "add", "bin", "calendar", "project", "gantt", "locked", "update-required", "loading", "completed", "high-priority", "medium-priority", "low-priority", "send", "logo", "attachments", "docs"):
             paths[f"/imgs/{icon}.png"] = (f"../imgs/{icon}.png", "image/png")
         if url.path not in paths:
             self.respond(404, {"error": "Not found."})
@@ -249,10 +297,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         action_path = self.path.startswith("/api/notes/")
         workspace_path = self.path.startswith(("/api/projects", "/api/tasks"))
+        documentation_path=self.path.startswith("/api/documentation")
         import_path=self.path == "/api/data/import"
         image_upload=self.path == "/api/comment-images"
         attachment_upload=bool(re.fullmatch(r"/api/tasks/[0-9]+/attachments",self.path))
-        if self.path != "/api/notes" and not action_path and not workspace_path and not import_path and not image_upload:
+        if self.path != "/api/notes" and not action_path and not workspace_path and not import_path and not image_upload and not documentation_path:
             self.respond(404, {"error": "Not found."})
             return
         # Reject browser cross-origin writes; this service intentionally has no CORS.
@@ -272,7 +321,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= (backup_store.MAX_BYTES if import_path else project_store.MAX_COMMENT_IMAGE_REQUEST if image_upload else project_store.MAX_ATTACHMENT_REQUEST if attachment_upload else MAX_BODY):
+            if not 0 < length <= (backup_store.MAX_BYTES if import_path else documentation_store.MAX_REQUEST if documentation_path else project_store.MAX_COMMENT_IMAGE_REQUEST if image_upload else project_store.MAX_ATTACHMENT_REQUEST if attachment_upload else MAX_BODY):
                 self.respond(413, {"error": "Request is too large or empty."})
                 return
             if self.headers.get_content_type() != "application/json":
@@ -287,6 +336,12 @@ class Handler(BaseHTTPRequestHandler):
                 with connect() as db:
                     filename=backup_store.restore(db,payload.get("backup"),DB.parent/"backups")
                 self.respond(200,{"imported":True,"recovery_backup":filename})
+                return
+            if documentation_path:
+                with connect() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    status,result=documentation_store.write(db,self.path,payload)
+                self.respond(status,result)
                 return
             rollover_week()
             if image_upload:

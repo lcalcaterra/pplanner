@@ -1,4 +1,5 @@
 import importlib.util
+import gc
 import json
 import tempfile
 import threading
@@ -32,6 +33,7 @@ class PlannerTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join()
+        gc.collect()  # Release SQLite cycles before Windows removes the temporary DB.
         self.temp.cleanup()
 
     def request(self, path, data=None, **headers):
@@ -44,6 +46,154 @@ class PlannerTests(unittest.TestCase):
         with response:
             raw = response.read()
             return response.status, json.loads(raw) if "application/json" in response.headers["Content-Type"] else raw
+
+
+    def doc_upload(self,name,content,parent=None):
+        import base64
+        return self.request("/api/documentation",{"kind":"document","name":name,"parent_id":parent,"content":base64.b64encode(content).decode()})
+
+    def test_documentation_folders_crud_cycles_and_cascade(self):
+        root=self.request("/api/documentation",{"kind":"folder","name":"Manuals"})[1]["item"]
+        child=self.request("/api/documentation",{"kind":"folder","name":"Nested","parent_id":root["id"]})[1]["item"]
+        doc=self.doc_upload("guide.md",b"# Guide\n\nHello",child["id"])[1]["item"]
+        self.assertEqual(self.request("/api/documentation/"+str(root["id"])+"/move",{"parent_id":child["id"]})[0],400)
+        self.assertEqual(self.request("/api/documentation/"+str(doc["id"])+"/move",{"parent_id":doc["id"]})[0],400)
+        self.assertEqual(self.request("/api/documentation/"+str(child["id"])+"/move",{"parent_id":None})[0],200)
+        self.assertEqual(self.request("/api/documentation/"+str(child["id"])+"/rename",{"name":"Renamed"})[0],200)
+        self.assertEqual(self.request("/api/documentation/"+str(doc["id"])+"/rename",{"name":"unsafe.pdf"})[0],400)
+        self.assertEqual(self.request("/api/documentation/"+str(child["id"])+"/delete",{})[0],200)
+        self.assertEqual(self.request("/api/documentation/"+str(doc["id"]))[0],404)
+        self.assertEqual(len(self.request("/api/documentation")[1]["items"]),1)
+
+    def test_documentation_text_edit_download_and_validation(self):
+        import base64
+        doc=self.doc_upload("guide.md","# Guide\n\nCaf\u00e9 <script>bad()</script>".encode())[1]["item"]
+        path="/api/documentation/"+str(doc["id"])
+        self.assertIn("Caf\u00e9",self.request(path)[1]["item"]["text"])
+        text=b"## Edited\n\n**Bold**"
+        self.assertEqual(self.request(path+"/edit",{"content":base64.b64encode(text).decode()})[0],200)
+        self.assertEqual(self.request(path+"/download")[1],text)
+        for name,content in [("bad.html",b"<html>"),("bad.pdf",b"not PDF"),("bad.docx",b"not ZIP"),("bad.txt",b"\xff"),("../bad.md",b"no")]:
+            self.assertEqual(self.doc_upload(name,content)[0],400,name)
+        self.assertEqual(self.request("/api/documentation",{"kind":"document","name":"bad.md","content":"!!"})[0],400)
+        self.assertEqual(self.request("/api/documentation",{"kind":"folder","name":"bad","parent_id":True})[0],400)
+
+    def test_documentation_docx_reader_and_original_download(self):
+        import io,zipfile
+        raw=io.BytesIO()
+        xml='<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Installation</w:t></w:r></w:p><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Bold body</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>'
+        xml=xml.replace('</w:body>', '<w:p><w:r><w:drawing xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><a:blip r:embed="rId1"/></w:drawing></w:r></w:p></w:body>')
+        import base64
+        image=base64.b64decode(self.image_content())
+        with zipfile.ZipFile(raw,"w") as archive:
+            archive.writestr("word/document.xml",xml)
+            archive.writestr("word/_rels/document.xml.rels",'<Relationships><Relationship Id="rId1" Target="media/image1.png"/></Relationships>')
+            archive.writestr("word/media/image1.png",image)
+        status,data=self.doc_upload("guide.docx",raw.getvalue())
+        self.assertEqual(status,201,data)
+        path="/api/documentation/"+str(data["item"]["id"])
+        blocks=self.request(path)[1]["item"]["blocks"]
+        self.assertEqual(blocks[0]["level"],2)
+        self.assertTrue(blocks[1]["runs"][0]["bold"])
+        self.assertEqual(blocks[2]["type"],"table")
+        self.assertEqual(blocks[3]["runs"][0]["image"],0)
+        self.assertEqual(self.request(path+"/media/0")[1],image)
+        self.assertEqual(self.request(path+"/download")[1],raw.getvalue())
+        self.assertEqual(self.request(path+"/edit",{"content":""})[0],400)
+        raw=io.BytesIO()
+        with zipfile.ZipFile(raw,"w") as archive: archive.writestr("word/document.xml",'<!DOCTYPE a [<!ENTITY x "bad">]>'+xml)
+        self.assertEqual(self.doc_upload("unsafe.docx",raw.getvalue())[0],400)
+
+    def test_documentation_backup_round_trip_and_legacy(self):
+        folder=self.request("/api/documentation",{"kind":"folder","name":"Knowledge"})[1]["item"]
+        self.doc_upload("guide.md",b"# Saved documentation",folder["id"])
+        backup=self.request("/api/data/export")[1]
+        self.assertEqual(len(backup["tables"]["documentation"]),2)
+        self.request("/api/documentation/"+str(folder["id"])+"/delete",{})
+        self.assertEqual(self.request("/api/data/import",{"confirm_replace":True,"backup":backup})[0],200)
+        self.assertEqual(len(self.request("/api/documentation")[1]["items"]),2)
+        invalid=json.loads(json.dumps(backup))
+        invalid["tables"]["documentation"][0]["parent_id"]=invalid["tables"]["documentation"][0]["id"]
+        self.assertEqual(self.request("/api/data/import",{"confirm_replace":True,"backup":invalid})[0],400)
+        self.assertEqual(len(self.request("/api/documentation")[1]["items"]),2)
+        del backup["tables"]["documentation"]
+        backup["tables"]["sqlite_sequence"]=[row for row in backup["tables"]["sqlite_sequence"] if row["name"]!="documentation"]
+        self.assertEqual(self.request("/api/data/import",{"confirm_replace":True,"backup":backup})[0],200)
+        self.assertEqual(self.request("/api/documentation")[1]["items"],[])
+
+
+    def test_documentation_search_contents_and_updates(self):
+        import base64,io,zipfile
+        folder=self.request("/api/documentation",{"kind":"folder","name":"Runbooks"})[1]["item"]
+        md=self.doc_upload("guide.md",b"# Guide\n\nUniqueNeedle with <script>plain markup</script>",folder["id"])[1]["item"]
+        self.doc_upload("UniqueNeedle.txt",b"Title match only")
+        raw=io.BytesIO()
+        xml='<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Unique</w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>Needle inside Word</w:t></w:r></w:p></w:body></w:document>'
+        with zipfile.ZipFile(raw,"w") as archive: archive.writestr("word/document.xml",xml)
+        self.doc_upload("word.docx",raw.getvalue())
+        status,data=self.request("/api/documentation/search?q=uniqueneedle")
+        self.assertEqual(status,200,data)
+        self.assertEqual(data["total"],3)
+        self.assertEqual(data["matches"][0]["path"],"Library / Runbooks")
+        self.assertTrue(any(match["name"]=="word.docx" and match["content_match"] for match in data["matches"]))
+        self.assertFalse(data["matches"][-1]["content_match"])
+        self.assertEqual(self.request("/api/documentation/search?q=a")[0],400)
+        self.assertEqual(self.request("/api/documentation/search?q=missingword")[1]["total"],0)
+        path="/api/documentation/"+str(md["id"])
+        self.request(path+"/edit",{"content":base64.b64encode(b"# Changed content").decode()})
+        self.assertEqual(self.request("/api/documentation/search?q=uniqueneedle")[1]["total"],2)
+        self.request(path+"/move",{"parent_id":None})
+        self.assertEqual(self.request("/api/documentation/search?q=Changed")[1]["matches"][0]["path"],"Library")
+        self.request(path+"/delete",{})
+        self.assertEqual(self.request("/api/documentation/search?q=Changed")[1]["total"],0)
+
+    def test_documentation_search_pdf_pages_and_unreadable_content(self):
+        from pypdf import PdfWriter
+        from pypdf.generic import DecodedStreamObject,DictionaryObject,NameObject
+        import io
+        writer=PdfWriter()
+        font=DictionaryObject({NameObject("/Type"):NameObject("/Font"),NameObject("/Subtype"):NameObject("/Type1"),NameObject("/BaseFont"):NameObject("/Helvetica")})
+        page=writer.add_blank_page(400,500)
+        page=writer.add_blank_page(400,500)
+        page[NameObject("/Resources")]=DictionaryObject({NameObject("/Font"):DictionaryObject({NameObject("/F1"):writer._add_object(font)})})
+        stream=DecodedStreamObject();stream.set_data(b"BT /F1 12 Tf 10 450 Td (UniquePDFneedle on second page) Tj ET")
+        page[NameObject("/Contents")]=writer._add_object(stream)
+        output=io.BytesIO();writer.write(output)
+        self.doc_upload("Reference.pdf",output.getvalue())
+        self.doc_upload("Damaged.pdf",b"%PDF-invalid")
+        status,data=self.request("/api/documentation/search?q=UniquePDFneedle")
+        self.assertEqual(status,200,data)
+        self.assertEqual(data["matches"][0]["page"],2)
+        self.assertIn("UniquePDFneedle",data["matches"][0]["snippet"])
+        self.assertEqual(data["skipped"][0]["name"],"Damaged.pdf")
+        status,data=self.request("/api/documentation/search?q=Damaged")
+        self.assertEqual(status,200,data)
+        self.assertEqual(data["matches"][0]["name"],"Damaged.pdf")
+        self.assertFalse(data["matches"][0]["content_match"])
+
+    def test_database_connections_close_after_commit_and_rollback(self):
+        with app.connect() as db:
+            db.execute("INSERT INTO app_state(key,value) VALUES ('connection_test','committed')")
+        with self.assertRaises(app.sqlite3.ProgrammingError):
+            db.execute("SELECT 1")
+        with app.connect() as check:
+            self.assertEqual(check.execute("SELECT value FROM app_state WHERE key='connection_test'").fetchone()[0],"committed")
+        with self.assertRaisesRegex(RuntimeError,"rollback fixture"):
+            with app.connect() as failed:
+                failed.execute("UPDATE app_state SET value='not committed' WHERE key='connection_test'")
+                raise RuntimeError("rollback fixture")
+        with self.assertRaises(app.sqlite3.ProgrammingError):
+            failed.execute("SELECT 1")
+        with app.connect() as check:
+            self.assertEqual(check.execute("SELECT value FROM app_state WHERE key='connection_test'").fetchone()[0],"committed")
+
+    def test_parallel_task_open_reads_remain_available(self):
+        project=self.request("/api/projects",{"name":"Concurrent task reads"})[1]["project"]
+        task=self.request("/api/tasks",{"project_id":project["id"],"title":"Open this task"})[1]["task"]
+        paths=["/api/projects","/api/tasks/"+str(task["id"]),"/api/projects/"+str(project["id"])+"/comments?task_id="+str(task["id"])]
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            responses=list(pool.map(self.request,paths*12))
+        self.assertTrue(all(status==200 for status,_ in responses))
 
     def image_content(self):
         return 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgaPj/HwAEggJ/59habAAAAABJRU5ErkJggg=='

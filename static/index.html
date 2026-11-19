@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Your private workspace for notes, projects and timelines."><title>Pplanner - Your week, thoughtfully planned</title><link rel="icon" type="image/png" href="/imgs/logo.png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/business.css"><script src="/comments.js" defer></script><script src="/app.js" defer></script><script src="/workspace.js" defer></script><script src="/backup.js" defer></script><script src="/restore.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Your private workspace for notes, projects and timelines."><title>Pplanner - Your week, thoughtfully planned</title><link rel="icon" type="image/png" href="/imgs/logo.png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/business.css"><link rel="stylesheet" href="/documentation.css"><script src="/documentation.js" defer></script><script src="/comments.js" defer></script><script src="/app.js" defer></script><script src="/workspace.js" defer></script><script src="/backup.js" defer></script><script src="/restore.js" defer></script></head>
 <body>
 <header class="topbar"><a class="brand" href="/" aria-label="Pplanner home"><img class="brand-logo" src="/imgs/logo.png" alt="" aria-hidden="true" width="40" height="40"><span>pplanner<span class="brand-caption">YOUR PRIVATE WORKSPACE</span></span></a><div class="top-actions"><span class="private"><span></span> Private workspace</span><details id="settings-menu" class="settings-menu"><summary class="settings icon-button" aria-label="Settings" title="Settings"><img src="/imgs/settings.png" alt="" aria-hidden="true" width="20" height="20"></summary><div class="settings-options"><button id="export-data" type="button">Export data</button><button id="import-data" type="button">Import data</button><button id="restore-projects" type="button">Restore projects</button><p id="backup-status" role="status" aria-live="polite"></p></div></details></div></header>
 
@@ -8,6 +8,7 @@
   <a href="#calendar" data-page="calendar" aria-current="page"><img src="/imgs/calendar.png" alt="" width="20" height="20"> Calendar</a>
   <a href="#projects" data-page="projects"><img src="/imgs/project.png" alt="" width="20" height="20"> Projects</a>
   <a href="#gantt" data-page="gantt"><img src="/imgs/gantt.png" alt="" width="20" height="20"> Gantt</a>
+  <a href="#documentation" data-page="documentation"><img src="/imgs/docs.png" alt="" width="20" height="20"> Documentation</a>
 </nav>
 
 <main id="calendar-page">
@@ -49,6 +50,27 @@
   <div id="gantt-chart" class="gantt-container" tabindex="0" aria-label="Project timeline"></div>
   <p id="gantt-footnote" class="gantt-footnote"></p>
 </main>
+
+<main id="documentation-page" class="workspace-page" hidden>
+<section class="workspace-heading docs-heading"><div><div class="eyebrow">KNOWLEDGE LIBRARY</div><h1>Documentation</h1></div><div class="docs-search"><form id="docs-search-form" role="search"><label for="docs-search-input" class="docs-visually-hidden">Search document names and contents</label><span class="docs-search-icon" aria-hidden="true"></span><input id="docs-search-input" type="search" maxlength="200" placeholder="Search inside documents..." autocomplete="off" aria-controls="docs-search-results" aria-expanded="false"><button id="docs-search-clear" type="button" aria-label="Clear document search" title="Clear search" hidden>&times;</button></form><section id="docs-search-results" aria-label="Document search results" hidden><p id="docs-search-status" role="status" aria-live="polite"></p><div id="docs-search-list"></div></section></div><span class="docs-supported">PDF &middot; Word (.docx) &middot; Markdown &middot; Text</span></section>
+<p id="docs-status" class="workspace-status" role="status" aria-live="polite"></p>
+<div class="docs-layout">
+<aside class="docs-library" aria-label="Documentation library">
+<header class="docs-panel-heading"><h2>Library</h2><details id="docs-add-menu"><summary class="docs-add-button" aria-label="Create or upload documentation" title="Create or upload"><span aria-hidden="true">+</span></summary><div class="docs-add-options"><button id="docs-new-folder" type="button">New folder</button><button id="docs-new-document" type="button">New document</button><button id="docs-upload" type="button">Upload files</button><button id="docs-upload-folder" type="button">Upload folder</button></div></details><button id="docs-library-toggle" class="docs-panel-toggle" type="button" aria-label="Collapse library" title="Collapse library" aria-expanded="true" aria-controls="docs-library-body"><span aria-hidden="true"></span></button></header><div id="docs-library-body" class="docs-library-body">
+<button id="docs-root" class="docs-root" type="button">All documents</button>
+<div id="docs-tree" class="docs-tree" aria-label="Folders and documents"></div>
+<input id="docs-file-input" type="file" accept=".pdf,.docx,.md,.markdown,.txt" multiple hidden>
+<input id="docs-folder-input" type="file" webkitdirectory multiple hidden>
+<p class="docs-library-hint">Drop files to upload &middot; Drag items into folders<br>Up to 20 MB per file</p>
+</div></aside>
+<section class="docs-reader" aria-label="Document reader">
+<header id="docs-document-header" hidden><div><p id="docs-breadcrumb"></p><h2 id="docs-document-title"></h2></div><div class="docs-document-actions"><button id="docs-edit" class="today-button" type="button" hidden>Edit</button><a id="docs-download" class="today-button" hidden>Download</a><button id="docs-rename" class="today-button" type="button">Rename</button><button id="docs-move" class="today-button" type="button">Move</button><button id="docs-delete" class="danger-button" type="button">Delete</button></div></header>
+<div id="docs-content" class="docs-content"><div class="docs-placeholder"><span aria-hidden="true">&#9636;</span><h2>Open a document</h2><p>Choose a document from your library, or upload one to get started.</p></div></div>
+</section>
+<aside class="docs-outline" aria-label="Document sections"><header class="docs-panel-heading"><h2>On this page</h2><button id="docs-outline-toggle" class="docs-panel-toggle" type="button" aria-label="Collapse document outline" title="Collapse document outline" aria-expanded="true" aria-controls="docs-outline-body"><span aria-hidden="true"></span></button></header><div id="docs-outline-body"><nav id="docs-outline-links" aria-label="Document headings"><p>Headings appear here when available.</p></nav></div></aside>
+</div>
+</main>
+<dialog id="docs-action-dialog" aria-labelledby="docs-action-title"><form id="docs-action-form"><header class="workspace-create-header"><h2 id="docs-action-title"></h2><button id="docs-action-close" class="icon-button" type="button" aria-label="Close documentation form">&times;</button></header><div id="docs-action-fields" class="workspace-form stacked"></div><p id="docs-action-status" class="workspace-status" role="status" aria-live="polite"></p><div class="docs-dialog-actions"><button id="docs-action-cancel" class="cancel" type="button">Cancel</button><button id="docs-action-submit" class="insert" type="submit">Save</button></div></form></dialog>
 
 <template id="day-template"><section class="day"><header class="day-header"><div><span class="day-name"></span><div class="day-date-row"><span class="day-number"></span><span class="today-label" hidden>TODAY</span></div></div><button class="add-note" aria-label="Add note"><img src="/imgs/add.png" alt="" aria-hidden="true" width="20" height="20"></button></header><div class="day-content"><div class="composer"></div><div class="notes"></div><div class="empty"><span class="empty-mark" aria-hidden="true">&#10022;</span><p>Ready for your next priority.</p><span>Add your first note</span></div></div><div class="day-count"></div></section></template>
 

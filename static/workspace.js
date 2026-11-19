@@ -836,12 +836,13 @@ async function loadGantt() {
 }
 $('#gantt-project-select').onchange=loadGantt;
 async function showPage() {
-  const name=['calendar','projects','gantt','restore-projects'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'calendar';
+  const name=['calendar','projects','gantt','restore-projects','documentation'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'calendar';
   document.querySelectorAll('[data-page]').forEach(link=>{
     if(link.dataset.page===name || (name==='restore-projects'&&link.dataset.page==='projects')) link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current');
   });
-  for(const page of ['calendar','projects','gantt','restore-projects']) $('#'+page+'-page').hidden=page!==name;
+  for(const page of ['calendar','projects','gantt','restore-projects','documentation']) $('#'+page+'-page').hidden=page!==name;
   document.title='Pplanner - '+(name==='restore-projects'?'Restore projects':name[0].toUpperCase()+name.slice(1));
+  if(name==='documentation') { await loadDocumentation(); return; }
   if(name==='calendar') return;
   try {
     await refreshProjectList();

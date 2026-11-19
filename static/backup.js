@@ -2,7 +2,7 @@
 const settingsMenu=$('#settings-menu'),importDialog=$('#import-dialog');
 let importBackup=null,importBusy=false,importDone=false,fileReadTicket=0;
 function backupPending() {
-  return mutationBusy||pendingCreates||taskSavePromise||discussionBusy||taskDeleting||taskAttachmentBusy||commentImageUploads;
+  return mutationBusy||pendingCreates||taskSavePromise||discussionBusy||taskDeleting||taskAttachmentBusy||commentImageUploads||docsState.busy||docsState.dirty;
 }
 function updateImportButton() {
   $('#import-submit').disabled=importBusy||!importBackup||!$('#import-confirm').checked;

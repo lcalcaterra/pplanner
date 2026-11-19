@@ -97,14 +97,18 @@ data volume; stop the previous instance before switching.
 - Python 3.12 or newer.
 - A modern web browser.
 
-No additional Python packages, Node.js, build tools or separate database service are required.
+Install the package in requirements.txt to enable PDF content search. No Node.js,
+build tools or separate database service are required.
 
 ### Start and stop
 
 Open a terminal in the project folder and run:
 
 ```sh
-python3 server.py
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+python server.py
 ```
 
 Open **http://localhost:8000**. Keep the server running while using the app.
@@ -113,7 +117,7 @@ Press **Ctrl+C** in its terminal to stop it.
 From Windows PowerShell with the project in Ubuntu/WSL:
 
 ```powershell
-wsl -d Ubuntu-24.04 --cd /home/lcalcaterra/personal-projects/pplanner python3 server.py
+wsl -d Ubuntu-24.04 --cd /home/lcalcaterra/personal-projects/pplanner .venv/bin/python server.py
 ```
 
 If port 8000 is already in use, the app may already be running. Open its address,
@@ -157,7 +161,9 @@ From the project folder, install the app and supplied service:
 
 ```sh
 sudo install -d -m 755 /opt/pplanner
-sudo install -m 644 server.py project_store.py backup_store.py /opt/pplanner/
+sudo install -m 644 server.py project_store.py backup_store.py documentation_store.py requirements.txt /opt/pplanner/
+sudo python3 -m venv /opt/pplanner/.venv
+sudo /opt/pplanner/.venv/bin/python -m pip install -r /opt/pplanner/requirements.txt
 sudo cp -r static imgs /opt/pplanner/
 sudo install -m 644 deploy/pplanner.service /etc/systemd/system/pplanner.service
 sudo systemctl daemon-reload
@@ -192,7 +198,7 @@ For a different port or timezone, run `sudo systemctl edit pplanner` and add:
 ```ini
 [Service]
 ExecStart=
-ExecStart=/usr/bin/python3 /opt/pplanner/server.py --host 127.0.0.1 --port 8080
+ExecStart=/opt/pplanner/.venv/bin/python /opt/pplanner/server.py --host 127.0.0.1 --port 8080
 Environment=PPLANNER_TIMEZONE=America/New_York
 ```
 
@@ -374,3 +380,64 @@ A recovery backup is saved automatically in `data/backups/` before replacement,
 or in `backups/` beside a custom database location. Recovery files can be imported
 through the same dialog. Validation or storage failures leave current data
 unchanged. Normal weekly rollover applies when restored data is opened.
+
+
+## Documentation library
+
+Open **Documentation** in the main navigation to organize and read your private
+documents. The folder tree is on the left, the reader in the center, and heading
+links on the right. Each section scrolls independently on larger screens.
+
+- Create folders and Markdown documents; edit Markdown and UTF-8 text in the app.
+- Upload **PDF, DOCX, Markdown (.md/.markdown), and UTF-8 .txt**, up to **20 MB per
+  file**. Choose files or drop them into a folder or the reader. Use **Upload folder**
+  to import a directory with its subfolders; unsupported files are skipped.
+- Rename, download, move, and delete documents and folders. Use **Move** or drag an
+  item into a folder; drop it on **All documents** to move it to the library root.
+  Deleting a folder deletes its contents after confirmation.
+- Markdown supports headings, common inline formatting, lists, quotes, code and
+  tables. DOCX shows body text, headings, common formatting, tables, links and
+  embedded PNG/JPEG/GIF/WebP images. Heading links jump to sections in the reader.
+- PDFs use your browser's PDF reader, including its page controls and outline
+  when the file provides one. A link opens the PDF separately if embedding is
+  unavailable. Scanned PDFs display as pages; there is no OCR.
+- DOCX is a reading view, not an exact Word page-layout replica: advanced layout,
+  charts, headers/footers, equations, tracked changes and legacy .doc files are
+  not supported. Numbered DOCX lists are displayed as list paragraphs. PDF and
+  DOCX editing is done in your original application, then uploaded again.
+
+Documents and folders are stored locally in the same database and are included
+in **Settings > Export data / Import data**, including original file downloads.
+Older exports without a documentation library still import successfully.
+No cloud viewer or internet connection is needed.
+
+### Search and reading space
+
+The library **+** menu contains New folder, New document, Upload files and
+Upload folder. Collapse or expand **Library** and **On this page** with their
+panel buttons to give the document reader more room. The app remembers these
+panel choices in your browser.
+
+Use the search bar above the reader to search document names and contents
+throughout the library (at least two characters). Select a result to open it.
+Matches are highlighted in Markdown, text and DOCX; PDF results open at the
+matching page, using the browser PDF viewer for in-page finding. Search is local
+and supports PDFs with extractable text. Scanned, password-protected or damaged
+PDFs can still be found by name; the results explain when content is unavailable.
+There is no OCR.
+
+PDF content search uses [pypdf](https://pypi.org/project/pypdf/). Docker installs
+it automatically. For a direct Python installation, install the dependency
+before starting the app:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+python server.py
+```
+
+The systemd installation steps above create a virtual environment and use its
+Python executable. After updating an existing installation, reload systemd and
+restart the service. Other document formats remain searchable if the
+PDF library has not been installed.

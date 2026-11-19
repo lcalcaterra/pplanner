@@ -7,7 +7,7 @@ Type=simple
 DynamicUser=yes
 User=pplanner
 WorkingDirectory=/opt/pplanner
-ExecStart=/usr/bin/python3 /opt/pplanner/server.py --host 127.0.0.1 --port 8000
+ExecStart=/opt/pplanner/.venv/bin/python /opt/pplanner/server.py --host 127.0.0.1 --port 8000
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 Environment=PPLANNER_DB=/var/lib/pplanner/planner.sqlite3

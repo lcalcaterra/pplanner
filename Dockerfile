@@ -18,7 +18,9 @@ RUN apt-get update \
     && chown pplanner:pplanner /data
 
 WORKDIR /app
-COPY server.py project_store.py backup_store.py ./
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY server.py project_store.py backup_store.py documentation_store.py ./
 COPY static/ ./static/
 COPY imgs/ ./imgs/
 COPY LICENSE ./

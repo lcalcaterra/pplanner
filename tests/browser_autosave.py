@@ -23,6 +23,44 @@ TEST_JS = r"""
     throw Error('Autosave timed out: '+document.querySelector('#task-editor-status').textContent);
   }
   try {
+    {
+      const originalFetch=window.fetch;
+      try {
+        let calls=0;
+        window.fetch=async(...args)=>{if(args[0]!=='/api/projects')return originalFetch(...args);calls++;if(calls===1)throw new TypeError('Simulated connection reset');return originalFetch(...args);};
+        assert(Array.isArray((await request('/api/projects')).projects)&&calls===2,'Interrupted GET was not retried');
+        calls=0;
+        window.fetch=async(...args)=>{if(args[0]!=='/api/projects')return originalFetch(...args);calls++;if(calls===1)return {ok:true,json:async()=>{throw new TypeError('Simulated response reset');}};return originalFetch(...args);};
+        assert(Array.isArray((await request('/api/projects')).projects)&&calls===2,'Interrupted response body was not retried');
+        calls=0;
+        window.fetch=async(...args)=>{if(args[0]!=='/api/projects')return originalFetch(...args);calls++;throw new TypeError('Simulated persistent reset');};
+        let error;
+        try{await request('/api/projects');}catch(found){error=found;}
+        assert(calls===3&&error?.message.includes('Could not reach Pplanner'),'Repeated GET failures did not stop with a helpful error');
+        calls=0;error=null;
+        window.fetch=async(...args)=>{if(args[0]!=='/api/tasks')return originalFetch(...args);calls++;throw new TypeError('Simulated write reset');};
+        try{await request('/api/tasks',{method:'POST',body:'{}'});}catch(found){error=found;}
+        assert(calls===1&&error,'A write was replayed after a connection failure');
+        calls=0;error=null;
+        window.fetch=async(...args)=>{if(args[0]!=='/api/projects')return originalFetch(...args);calls++;return new Response(JSON.stringify({error:'Expected validation error'}),{status:400,headers:{'Content-Type':'application/json'}});};
+        try{await request('/api/projects');}catch(found){error=found;}
+        assert(calls===1&&error?.message==='Expected validation error','An HTTP error was incorrectly retried');
+        calls=0;error=null;
+        window.fetch=async(...args)=>{if(args[0]!=='/api/projects')return originalFetch(...args);calls++;throw new TypeError('Simulated connection reset before cancel');};
+        const controller=new AbortController();setTimeout(()=>controller.abort(),30);
+        try{await request('/api/projects',{signal:controller.signal});}catch(found){error=found;}
+        assert(calls===1&&error?.name==='AbortError','Canceled GET retry was not stopped');
+        result.checks.push('Connection-reset recovery for GET/body reads, bounded attempts, no write/HTTP-error retries and cancellation');
+      }finally{window.fetch=originalFetch;}
+    }
+    const interruptedReads=new Set(),stableFetch=window.fetch;
+    window.fetch=async(url,options)=>{
+      if((options?.method||'GET').toUpperCase()==='GET'&&typeof url==='string'&&
+        (url==='/api/projects'||/^\/api\/tasks\/[0-9]+$/.test(url)||/^\/api\/projects\/[0-9]+\/comments\?task_id=/.test(url))&&!interruptedReads.has(url)){
+        interruptedReads.add(url);throw new TypeError('Simulated first-read connection reset');
+      }
+      return stableFetch(url,options);
+    };
     document.querySelector('#calendar-page').hidden=true;document.querySelector('#projects-page').hidden=false;
     let tasks;
     if(new URL(location.href).searchParams.has('existing')){
@@ -412,6 +450,9 @@ TEST_JS = r"""
     assert(!restored.tables.notes.some(note=>note.id===extraNote.id),'Import did not overwrite later data');
     assert(document.querySelector('#import-status').textContent.includes('Recovery backup:'),'Recovery information missing');
     result.checks.push('Settings export download, invalid file rejection, drag/drop import, confirmation and complete replacement');
+    assert([...interruptedReads].some(path=>path.startsWith('/api/tasks/'))&&[...interruptedReads].some(path=>path.includes('/comments?task_id=')),'Task and comment recovery paths were not exercised');
+    window.fetch=stableFetch;
+    result.checks.push('Task and subtask editors recover when project, task and discussion requests reset on first load');
   }catch(error){result.errors.push(error.stack||String(error));}
   result.passed=!result.errors.length;
   report.textContent=JSON.stringify(result);

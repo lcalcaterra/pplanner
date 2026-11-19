@@ -17,11 +17,40 @@ function monday(date) { return shift(date, -((date.getDay() + 6) % 7)); }
 let week = monday(today), generation = 0;
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const month = new Intl.DateTimeFormat('en', {month:'long'});
-async function request(url, options) {
-  const response = await fetch(url, options);
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Something went wrong. Please retry.');
-  return data;
+function waitForReadRetry(delay,signal) {
+  return new Promise((resolve,reject)=>{
+    if(signal?.aborted){reject(signal.reason||new DOMException('Request canceled.','AbortError'));return;}
+    const abort=()=>{
+      clearTimeout(timer);
+      reject(signal.reason||new DOMException('Request canceled.','AbortError'));
+    };
+    const timer=setTimeout(()=>{
+      signal?.removeEventListener('abort',abort);
+      resolve();
+    },delay);
+    signal?.addEventListener('abort',abort,{once:true});
+  });
+}
+async function request(url, options={}) {
+  const read=(options.method||'GET').toUpperCase()==='GET';
+  for(let attempt=0;;attempt++){
+    let response,data;
+    try {
+      response=await fetch(url,options);
+      data=await response.json();
+    } catch(error) {
+      if(error.name==='AbortError'||options.signal?.aborted)throw error;
+      // A reset can interrupt either fetch or its response body. Never replay writes.
+      if(error instanceof TypeError&&read&&attempt<2){
+        await waitForReadRetry(attempt===0?180:450,options.signal);
+        continue;
+      }
+      if(error instanceof TypeError)throw new Error('Could not reach Pplanner. Check that the server is running and try again.',{cause:error});
+      throw error;
+    }
+    if(!response.ok)throw new Error(data.error||'Something went wrong. Please retry.');
+    return data;
+  }
 }
 let mutationBusy = false, pendingCreates = 0, dragged = null, suppressClickUntil = 0;
 const noteModels = new Map();

@@ -4,6 +4,7 @@ import os
 import re
 import sqlite3
 import project_store
+import documentation_store
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
@@ -39,6 +40,7 @@ def insert_rows(db, data):
     db.executemany("INSERT INTO sqlite_sequence(name,seq) VALUES (?,?)", [(r["name"], r["seq"]) for r in data["sqlite_sequence"]])
 
 def check_semantics(db):
+    documentation_store.check_hierarchy(db)
     projects = {r["id"]: r for r in db.execute("SELECT * FROM projects")}
     tasks = {r["id"]: r for r in db.execute("SELECT * FROM project_tasks")}
     phases = {r["id"]: r for r in db.execute("SELECT * FROM project_phases")}
@@ -113,7 +115,7 @@ def validate(db, payload):
     # Version 1 backups produced before attachments remain importable.
     if isinstance(data,dict):
         data={**data}
-        for optional in ("task_attachments","comment_images"):
+        for optional in ("task_attachments","comment_images","documentation"):
             if optional not in data:
                 data[optional]=[]
     if not isinstance(data,dict) or set(data) != set(tables(db)):
